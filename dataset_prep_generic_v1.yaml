@@ -76,20 +76,24 @@ implementation:
             if assistant_msg:
                 messages.append({"role": "assistant", "content": assistant_msg})
             return messages
-        
         def load_hf_dataset(uri, token=None):
             print(f"[INFO] Loading Hugging Face dataset: {uri}")
-            try:
-                # Try to load dataset with or without a token
-                if token:
+            
+            # Try with token first if provided and valid
+            if token and token.strip() and not token.startswith("$"):
+                try:
+                    print(f"[INFO] Attempting to load with authentication token")
                     return load_dataset(uri, token=token)
-                else:
-                    return load_dataset(uri)
-            except ValueError as e:
-                # Catch and log the error if the dataset loading fails
+                except Exception as e:
+                    print(f"[WARNING] Failed with token, retrying without authentication: {e}")
+            
+            # Try without token (for public datasets or as fallback)
+            try:
+                print(f"[INFO] Loading dataset without authentication")
+                return load_dataset(uri)
+            except Exception as e:
                 print(f"[ERROR] Failed to load dataset: {e}")
                 raise e
-        
         def load_pi_api_dataset(api_url, access_token, input_field, output_field):
             print(f"[INFO] Fetching PI API dataset from {api_url}")
             session = requests.Session()
@@ -234,6 +238,7 @@ implementation:
       - {outputPath: processed_dataset}
       - --schema_json
       - {outputPath: schema_json}
+
 
 
 
