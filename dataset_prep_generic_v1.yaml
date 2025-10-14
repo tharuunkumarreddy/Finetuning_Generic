@@ -38,13 +38,36 @@ implementation:
         from urllib3.util.retry import Retry
         from datasets import load_dataset, Dataset, DatasetDict
         import logging
-        import re
+        
+        # Setup logging
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger('dataset_prep')
         
         # Ensure output directories exist before saving the files
         def ensure_directory_exists(file_path):
             directory = os.path.dirname(file_path)
             if directory and not os.path.exists(directory):
                 os.makedirs(directory, exist_ok=True)
+        
+        # Helper function to read token from file or use as string
+        def get_token_value(token_arg):
+            """
+            Reads token from file if it's a file path, otherwise returns the string value.
+            Handles None and empty strings gracefully.
+            """
+            if not token_arg:
+                return None
+            
+            token_str = str(token_arg).strip()
+            
+            # Check if it's a file path
+            if os.path.exists(token_str):
+                logger.info(f"Reading token from file: {token_str}")
+                with open(token_str, 'r') as f:
+                    return f.read().strip()
+            else:
+                # It's a direct string value
+                return token_str if token_str else None
         
         # Argument Parsing
         parser = argparse.ArgumentParser(description="Generic dataset preparation")
@@ -61,6 +84,13 @@ implementation:
         parser.add_argument("--schema_json", required=True)
         args = parser.parse_args()
         
+        # Read tokens from files or use direct values
+        hf_token = get_token_value(args.hf_token)
+        access_token = get_token_value(args.access_token)
+        
+        logger.info(f"HF Token present: {bool(hf_token)}")
+        logger.info(f"Access Token present: {bool(access_token)}")
+        
         def build_messages(example, input_col, output_col, image_col=None):
             user_msg = str(example.get(input_col, "")).strip()
             raw_output = example.get(output_col, "")
@@ -76,31 +106,34 @@ implementation:
             if assistant_msg:
                 messages.append({"role": "assistant", "content": assistant_msg})
             return messages
+        
         def load_hf_dataset(uri, token=None):
-            print(f"[INFO] Loading Hugging Face dataset: {uri}")
+            logger.info(f"Loading Hugging Face dataset: {uri}")
             
             # Try with token first if provided and valid
             if token and token.strip() and not token.startswith("$"):
                 try:
-                    print(f"[INFO] Attempting to load with authentication token")
+                    logger.info("Attempting to load with authentication token")
                     return load_dataset(uri, token=token)
                 except Exception as e:
-                    print(f"[WARNING] Failed with token, retrying without authentication: {e}")
+                    logger.warning(f"Failed with token, retrying without authentication: {e}")
             
             # Try without token (for public datasets or as fallback)
             try:
-                print(f"[INFO] Loading dataset without authentication")
+                logger.info("Loading dataset without authentication")
                 return load_dataset(uri)
             except Exception as e:
-                print(f"[ERROR] Failed to load dataset: {e}")
+                logger.error(f"Failed to load dataset: {e}")
                 raise e
+        
         def load_pi_api_dataset(api_url, access_token, input_field, output_field):
-            print(f"[INFO] Fetching PI API dataset from {api_url}")
+            logger.info(f"Fetching PI API dataset from {api_url}")
+            
             session = requests.Session()
             retries = Retry(total=5, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
             session.mount("http://", HTTPAdapter(max_retries=retries))
             session.mount("https://", HTTPAdapter(max_retries=retries))
-
+        
             payload = {
                 "dbType": "TIDB",
                 "entityId": "",
@@ -111,46 +144,50 @@ implementation:
                 "startTime": 0,
                 "endTime": 0
             }
+            
             headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
+            
             try:
-                resp = session.post(api_url, headers=headers,json=payload, timeout=60)
+                resp = session.post(api_url, headers=headers, json=payload, timeout=60)
                 resp.raise_for_status()
                 raw_data = resp.json()
             except Exception as e:
-                logger.error('API failed: ' + str(e))
+                logger.error(f'API failed: {str(e)}')
                 raise
-                
-            if isinstance(raw_data, list) and all(isinstance(x, dict) for x in raw_data) and input_field in raw_data[0]:
-                print("[INFO] Flat PI API schema detected.")
-                records = []
-                for item in raw_data:
-                    prompt = item.get(input_field, "")
-                    response = item.get(output_field, "")
-                    if isinstance(response, (dict, list)):
-                        response = json.dumps(response, ensure_ascii=False)
-                    if prompt or response:
-                        records.append({"instruction": prompt, "output": response})
-                return DatasetDict({"train": Dataset.from_list(records)})
-        
-            print("[INFO] Nested PI API schema detected")
+            
+            # Check for flat schema
+            if isinstance(raw_data, list) and raw_data and all(isinstance(x, dict) for x in raw_data):
+                if input_field in raw_data[0]:
+                    logger.info("Flat PI API schema detected.")
+                    records = []
+                    for item in raw_data:
+                        prompt = item.get(input_field, "")
+                        response = item.get(output_field, "")
+                        if isinstance(response, (dict, list)):
+                            response = json.dumps(response, ensure_ascii=False)
+                        if prompt or response:
+                            records.append({"instruction": prompt, "output": response})
+                    return DatasetDict({"train": Dataset.from_list(records)})
+            
+            logger.info("Nested PI API schema detected")
             CHILD_KEYS = ["subsections", "sections", "children", "items"]
             TITLE_KEYS = ["title", "heading", "name"]
             CONTENT_KEYS = ["content", "text", "body"]
-        
+            
             def iter_children(node):
                 for k in CHILD_KEYS:
                     v = node.get(k)
                     if isinstance(v, list):
                         return v
                 return []
-        
+            
             def get_first(node, keys):
                 for k in keys:
                     val = node.get(k)
                     if val:
                         return str(val).strip()
                 return ""
-        
+            
             def extract_recursive(node, path=""):
                 results = []
                 title = get_first(node, TITLE_KEYS)
@@ -161,7 +198,7 @@ implementation:
                     subpath = f"{path}/sub_{idx}" if path else f"sub_{idx}"
                     results.extend(extract_recursive(child, subpath))
                 return results
-        
+            
             def extract_all(raw):
                 all_rows = []
                 items = raw if isinstance(raw, list) else [raw]
@@ -173,7 +210,7 @@ implementation:
                             doc = res.get("data", {}).get("structuredTextJsonData", {}).get("document", {})
                             all_rows.extend(extract_recursive(doc))
                 return all_rows
-        
+            
             flat_items = extract_all(raw_data)
             records = []
             for item in flat_items:
@@ -181,6 +218,10 @@ implementation:
                 response = item.get(output_field, "")
                 if prompt or response:
                     records.append({"instruction": prompt, "output": response})
+            
+            if not records:
+                raise ValueError("No records extracted from PI API response")
+            
             return DatasetDict({"train": Dataset.from_list(records)})
         
         # Ensure output directories exist before saving the files
@@ -189,17 +230,18 @@ implementation:
         
         # Load dataset
         if args.dataset_source.lower() == "huggingface":
-            dataset = load_hf_dataset(args.dataset_uri, args.hf_token)
+            dataset = load_hf_dataset(args.dataset_uri, hf_token)
         elif args.dataset_source.lower() == "pi_api":
-            if not args.access_token:
-                raise ValueError("PI API mode requires access_token")
-            dataset = load_pi_api_dataset(args.dataset_uri, args.access_token, args.input_field, args.output_field)
+            if not access_token:
+                raise ValueError("PI API mode requires access_token. Please provide a valid access token.")
+            dataset = load_pi_api_dataset(args.dataset_uri, access_token, args.input_field, args.output_field)
         else:
             raise ValueError(f"Unsupported dataset_source: {args.dataset_source}")
         
         train = dataset["train"]
         if args.max_records and len(train) > args.max_records:
             train = train.select(range(args.max_records))
+        
         if "validation" in dataset:
             ds_dict = dataset
         else:
@@ -228,8 +270,8 @@ implementation:
         with open(args.schema_json, "w") as f:
             json.dump(schema, f, indent=2)
         
-        print("Dataset preparation complete")
-        print(json.dumps(schema, indent=2))
+        logger.info("Dataset preparation complete")
+        logger.info(json.dumps(schema, indent=2))
     args:
       - --dataset_source
       - {inputValue: dataset_source}
@@ -253,6 +295,7 @@ implementation:
       - {outputPath: processed_dataset}
       - --schema_json
       - {outputPath: schema_json}
+
 
 
 
