@@ -1,51 +1,48 @@
 name: Generic Dataset Preparation (HF or PI API)
-description: >
-  Prepares datasets for LoRA fine-tuning (SLM/LLM/VLM) from either Hugging Face
-  repositories or PI API structured JSON. Automatically formats data into chat-style
-  messages and saves schema metadata for downstream fine-tuning.
+description: Prepares datasets for LoRA fine-tuning (SLM/LLM/VLM) from either Hugging Face repositories or PI API structured JSON. Automatically formats data into chat-style messages and saves schema metadata for downstream fine-tuning.
 
 inputs:
   - name: dataset_source
     type: string
-    description: "Either 'huggingface' or 'pi_api'."
+    description: Either 'huggingface' or 'pi_api'.
   - name: dataset_uri
     type: string
-    description: "For HF: dataset name or path. For PI: API URL endpoint."
+    description: For HF dataset name or path. For PI API URL endpoint.
   - name: input_field
     type: string
-    description: "Column or key used for user prompt/instruction."
+    description: Column or key used for user prompt/instruction.
   - name: output_field
     type: string
-    description: "Column or key used for response/answer/output."
+    description: Column or key used for response/answer/output.
   - name: image_field
     type: string
     default: ""
     optional: true
-    description: "Optional column for image (for multimodal data)."
+    description: Optional column for image (for multimodal data).
   - name: validation_split
     type: float
     default: 0.02
-    description: "Validation split ratio."
+    description: Validation split ratio.
   - name: max_records
     type: integer
     default: 2000
-    description: "Limit for quick local tests."
+    description: Limit for quick local tests.
   - name: hf_token
     type: string
     optional: true
-    description: "Hugging Face access token for private datasets."
+    description: Hugging Face access token for private datasets.
   - name: access_token
     type: string
     optional: true
-    description: "Bearer token from IAM Login Service for PI API datasets."
+    description: Bearer token from IAM Login Service for PI API datasets.
 
 outputs:
   - name: processed_dataset
     type: Dataset
-    description: "Processed dataset folder containing train/validation splits."
+    description: Processed dataset folder containing train/validation splits.
   - name: schema_json
     type: Dataset
-    description: "Schema and dataset metadata (JSON)."
+    description: Schema and dataset metadata (JSON).
 
 implementation:
   container:
@@ -66,10 +63,11 @@ implementation:
         import requests
         from requests.adapters import HTTPAdapter
         from urllib3.util.retry import Retry
+        from datasets import load_dataset, Dataset, DatasetDict
         import logging
         import re
 
-        parser = argparse.ArgumentParser(description="Generic dataset preparation (HF or PI API)")
+        parser = argparse.ArgumentParser(description="Generic dataset preparation")
         parser.add_argument("--dataset_source", required=True)
         parser.add_argument("--dataset_uri", required=True)
         parser.add_argument("--input_field", required=True)
@@ -83,7 +81,6 @@ implementation:
         parser.add_argument("--schema_json", required=True)
         args = parser.parse_args()
 
-        # -------- Helper to build messages --------
         def build_messages(example, input_col, output_col, image_col=None):
             user_msg = str(example.get(input_col, "")).strip()
             raw_output = example.get(output_col, "")
@@ -93,21 +90,19 @@ implementation:
                 assistant_msg = str(raw_output).strip()
             messages = []
             if image_col and image_col in example and example[image_col]:
-                messages.append({"role": "user", "content": f"[IMAGE]: {example[image_col]}"}))
+                messages.append({"role": "user", "content": f"[IMAGE]: {example[image_col]}"})
             if user_msg:
                 messages.append({"role": "user", "content": user_msg})
             if assistant_msg:
                 messages.append({"role": "assistant", "content": assistant_msg})
             return messages
 
-        # -------- Load Hugging Face dataset --------
         def load_hf_dataset(uri, token=None):
             print(f"[INFO] Loading Hugging Face dataset: {uri}")
             if token:
                 return load_dataset(uri, use_auth_token=token)
             return load_dataset(uri)
 
-        # -------- Load PI API dataset (hybrid logic) --------
         def load_pi_api_dataset(api_url, access_token, input_field, output_field):
             print(f"[INFO] Fetching PI API dataset from {api_url}")
             session = requests.Session()
@@ -119,7 +114,6 @@ implementation:
             resp.raise_for_status()
             raw_data = resp.json()
 
-            # Case A: flat input/output
             if isinstance(raw_data, list) and all(isinstance(x, dict) for x in raw_data) and input_field in raw_data[0]:
                 print("[INFO] Flat PI API schema detected.")
                 records = []
@@ -132,8 +126,7 @@ implementation:
                         records.append({"instruction": prompt, "output": response})
                 return DatasetDict({"train": Dataset.from_list(records)})
 
-            # Case B: nested structuredTextJsonData
-            print("[INFO] Nested PI API schema detected; extracting recursively.")
+            print("[INFO] Nested PI API schema detected")
             CHILD_KEYS = ["subsections","sections","children","items"]
             TITLE_KEYS = ["title","heading","name"]
             CONTENT_KEYS = ["content","text","body"]
@@ -184,17 +177,15 @@ implementation:
                     records.append({"instruction": prompt, "output": response})
             return DatasetDict({"train": Dataset.from_list(records)})
 
-        # -------- Source Selection --------
         if args.dataset_source.lower() == "huggingface":
             dataset = load_hf_dataset(args.dataset_uri, args.hf_token)
         elif args.dataset_source.lower() == "pi_api":
             if not args.access_token:
-                raise ValueError("PI API mode requires --access_token.")
+                raise ValueError("PI API mode requires access_token")
             dataset = load_pi_api_dataset(args.dataset_uri, args.access_token, args.input_field, args.output_field)
         else:
             raise ValueError(f"Unsupported dataset_source: {args.dataset_source}")
 
-        # -------- Split and Limit --------
         train = dataset["train"]
         if args.max_records and len(train) > args.max_records:
             train = train.select(range(args.max_records))
@@ -204,13 +195,12 @@ implementation:
             split = train.train_test_split(test_size=args.validation_split, seed=42)
             ds_dict = DatasetDict({"train": split["train"], "validation": split["test"]})
 
-        # -------- Add messages --------
         def add_messages(example):
             return {"messages": build_messages(example, args.input_field, args.output_field, args.image_field)}
+        
         ds_dict = ds_dict.map(add_messages)
-
-        # -------- Save outputs --------
         ds_dict.save_to_disk(args.processed_dataset)
+        
         schema = {
             "dataset_source": args.dataset_source,
             "dataset_uri": args.dataset_uri,
@@ -221,11 +211,12 @@ implementation:
             "num_val": len(ds_dict["validation"]),
             "source_type": args.dataset_source.lower()
         }
+        
         with open(args.schema_json, "w") as f:
             json.dump(schema, f, indent=2)
-        print("✅ Dataset preparation complete.")
+        
+        print("Dataset preparation complete")
         print(json.dumps(schema, indent=2))
-
     args:
       - --dataset_source
       - {inputValue: dataset_source}
