@@ -43,7 +43,7 @@ implementation:
         # Ensure output directories exist before saving the files
         def ensure_directory_exists(file_path):
             directory = os.path.dirname(file_path)
-            if not os.path.exists(directory):
+            if directory and not os.path.exists(directory):
                 os.makedirs(directory, exist_ok=True)
         
         # Argument Parsing
@@ -70,7 +70,7 @@ implementation:
                 assistant_msg = str(raw_output).strip()
             messages = []
             if image_col and image_col in example and example[image_col]:
-                messages.append({"role": "user", "content": f"[IMAGE]: {example[image_col]}"})
+                messages.append({"role": "user", "content": f"[IMAGE]: {example[image_col]}"}). 
             if user_msg:
                 messages.append({"role": "user", "content": user_msg})
             if assistant_msg:
@@ -79,10 +79,16 @@ implementation:
         
         def load_hf_dataset(uri, token=None):
             print(f"[INFO] Loading Hugging Face dataset: {uri}")
-            if token:
-                # Use token in the 'load_dataset' call if needed
-                return load_dataset(uri, use_auth_token=token)
-            return load_dataset(uri)
+            try:
+                # Try to load dataset with or without a token
+                if token:
+                    return load_dataset(uri, use_auth_token=token)
+                else:
+                    return load_dataset(uri)
+            except ValueError as e:
+                # Catch and log the error if the dataset loading fails
+                print(f"[ERROR] Failed to load dataset: {e}")
+                raise e
         
         def load_pi_api_dataset(api_url, access_token, input_field, output_field):
             print(f"[INFO] Fetching PI API dataset from {api_url}")
@@ -205,7 +211,6 @@ implementation:
         
         print("Dataset preparation complete")
         print(json.dumps(schema, indent=2))
-
     args:
       - --dataset_source
       - {inputValue: dataset_source}
@@ -229,6 +234,7 @@ implementation:
       - {outputPath: processed_dataset}
       - --schema_json
       - {outputPath: schema_json}
+
 
 
 
