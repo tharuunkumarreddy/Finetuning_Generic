@@ -49,20 +49,25 @@ outputs:
 
 implementation:
   container:
-    image: python:3.9
+    image: nikhilv215/nesy-factory:v22
     command:
       - sh
-      - -ec
+      - -c
       - |
-        set -e
-        apt-get update && apt-get install -y git unzip wget
-        pip install --no-cache-dir datasets pandas pyarrow requests
-
-        python3 - <<'EOF'
-        import os, json, argparse, requests
-        from datasets import load_dataset, Dataset, DatasetDict
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import os
+        import json
+        import pandas as pd
+        import requests
         from requests.adapters import HTTPAdapter
         from urllib3.util.retry import Retry
+        import logging
+        import re
 
         parser = argparse.ArgumentParser(description="Generic dataset preparation (HF or PI API)")
         parser.add_argument("--dataset_source", required=True)
@@ -220,7 +225,6 @@ implementation:
             json.dump(schema, f, indent=2)
         print("✅ Dataset preparation complete.")
         print(json.dumps(schema, indent=2))
-        EOF
 
     args:
       - --dataset_source
