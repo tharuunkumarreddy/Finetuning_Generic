@@ -82,7 +82,7 @@ implementation:
             try:
                 # Try to load dataset with or without a token
                 if token:
-                    return load_dataset(uri, use_auth_token=token)
+                    return load_dataset(uri, token=token)
                 else:
                     return load_dataset(uri)
             except ValueError as e:
@@ -234,6 +234,7 @@ implementation:
       - {outputPath: processed_dataset}
       - --schema_json
       - {outputPath: schema_json}
+
 
 
 
