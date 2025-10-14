@@ -1,48 +1,22 @@
-name: Generic Dataset Preparation (HF or PI API)
+name: Generic Dataset Preparation
 description: Prepares datasets for LoRA fine-tuning (SLM/LLM/VLM) from either Hugging Face repositories or PI API structured JSON. Automatically formats data into chat-style messages and saves schema metadata for downstream fine-tuning.
 
 inputs:
-  - name: dataset_source
-    type: string
-    description: Either 'huggingface' or 'pi_api'.
-  - name: dataset_uri
-    type: string
-    description: For HF dataset name or path. For PI API URL endpoint.
-  - name: input_field
-    type: string
-    description: Column or key used for user prompt/instruction.
-  - name: output_field
-    type: string
-    description: Column or key used for response/answer/output.
-  - name: image_field
-    type: string
-    default: ""
-    optional: true
-    description: Optional column for image (for multimodal data).
-  - name: validation_split
-    type: float
-    default: 0.02
-    description: Validation split ratio.
-  - name: max_records
-    type: integer
-    default: 2000
-    description: Limit for quick local tests.
-  - name: hf_token
-    type: string
-    optional: true
-    description: Hugging Face access token for private datasets.
-  - name: access_token
-    type: string
-    optional: true
-    description: Bearer token from IAM Login Service for PI API datasets.
+
+  - {name: dataset_source, type: String, description: 'Either hf or pi'}
+  - {name: dataset_uri, type: String, description: 'For HF dataset name or path. For PI API URL endpoint'}
+  - {name: input_field, type: String, description: 'Column or key used for user prompt'}
+  - {name: output_field, type: String, description: 'Column or key used for response'}  
+  - {name: image_field, type: String, description: 'Optional column for image for multimodal data'}
+  - {name: validation_split, type: Float, description: 'Validation split ratio'}
+  - {name: max_records, type: Integer, description: 'Limit for quick local tests'}
+  - {name: hf_token, type: String, description: 'Hugging Face access token for private datasets'}  
+  - {name: access_token, type: String, description: 'Bearer access token for API auth'}     
 
 outputs:
-  - name: processed_dataset
-    type: Dataset
-    description: Processed dataset folder containing train/validation splits.
-  - name: schema_json
-    type: Dataset
-    description: Schema and dataset metadata (JSON).
+  - {name: processed_dataset, type: Dataset}
+  - {name: schema_json, type: Data}
+  - {name: metadata, type: Data}    
 
 implementation:
   container:
