@@ -66,7 +66,6 @@ implementation:
         import requests
         from requests.adapters import HTTPAdapter
         from urllib3.util.retry import Retry
-        from datasets import load_dataset, Dataset, DatasetDict
         import logging
         import re
 
@@ -94,7 +93,7 @@ implementation:
                 assistant_msg = str(raw_output).strip()
             messages = []
             if image_col and image_col in example and example[image_col]:
-                messages.append({"role": "user", "content": f"[IMAGE]: {example[image_col]}"})
+                messages.append({"role": "user", "content": f"[IMAGE]: {example[image_col]}"}))
             if user_msg:
                 messages.append({"role": "user", "content": user_msg})
             if assistant_msg:
@@ -226,6 +225,7 @@ implementation:
             json.dump(schema, f, indent=2)
         print("✅ Dataset preparation complete.")
         print(json.dumps(schema, indent=2))
+
     args:
       - --dataset_source
       - {inputValue: dataset_source}
