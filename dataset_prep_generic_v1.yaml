@@ -48,14 +48,23 @@ implementation:
         
         def get_token_value(token_arg):
             if not token_arg:
+                logger.info("Token argument is None or empty")
                 return None
             token_str = str(token_arg).strip()
+            logger.info(f"Token argument received: {token_str[:50]}..." if len(token_str) > 50 else f"Token argument received: {token_str}")
             if os.path.exists(token_str):
                 logger.info(f"Reading token from file: {token_str}")
-                with open(token_str, 'r') as f:
-                    return f.read().strip()
+                try:
+                    with open(token_str, 'r') as f:
+                        content = f.read().strip()
+                        logger.info(f"Token file content length: {len(content)}")
+                        return content if content else None
+                except Exception as e:
+                    logger.error(f"Failed to read token file: {e}")
+                    return None
             else:
-                return token_str if token_str else None
+                logger.info("Token is direct string value (not a file path)")
+                return token_str if token_str and token_str != "None" else None
         
         parser = argparse.ArgumentParser(description="Generic dataset preparation")
         parser.add_argument("--dataset_source", required=True)
@@ -74,8 +83,11 @@ implementation:
         hf_token = get_token_value(args.hf_token)
         access_token = get_token_value(args.access_token)
         
+        logger.info(f"Raw args.hf_token: {args.hf_token}")
+        logger.info(f"Raw args.access_token: {args.access_token}")
         logger.info(f"HF Token present: {bool(hf_token)}")
         logger.info(f"Access Token present: {bool(access_token)}")
+        logger.info(f"Access Token length: {len(access_token) if access_token else 0}")
         
         def build_messages(example, input_col, output_col, image_col=None):
             user_msg = str(example.get(input_col, "")).strip()
