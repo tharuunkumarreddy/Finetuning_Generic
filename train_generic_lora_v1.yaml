@@ -2,8 +2,8 @@ name: Generic LoRA Fine-tuning
 description: Fine-tunes any LLM using PEFT LoRA adapters.
 inputs:
   - {name: model_name, type: String, description: '\''Hugging Face model ID or path'\''}
-  - {name: processed_dataset, type: Dataset, description: '\''Prepared dataset from Generic Dataset Preparation component'\''}
-  - {name: schema_json, type: Dataset, description: '\''Schema metadata JSON from Generic Dataset Preparation component'\''}
+  - {name: processed_dataset, type: Data, description: '\''Prepared dataset from Generic Dataset Preparation component'\''}
+  - {name: schema_json, type: Data, description: '\''Schema metadata JSON from Generic Dataset Preparation component'\''}
   - {name: epochs, type: Integer, description: '\''Number of training epochs'\''}
   - {name: batch_size, type: Integer, description: '\''Per-device training batch size'\''}
   - {name: learning_rate, type: Float, description: '\''Learning rate for optimizer'\''}
@@ -318,3 +318,4 @@ implementation:
           --lora_adapters "$1"
     args:
       - {outputPath: lora_adapters}
+
