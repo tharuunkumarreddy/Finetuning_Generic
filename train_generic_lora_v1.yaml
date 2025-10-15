@@ -24,15 +24,11 @@ implementation:
   container:
     image: nikhilv215/nesy-factory:v22
     command:
-      - sh
-      - -c
-      - |
-        exec "$0" "$@"
       - python3
-      - -u
       - -c
       - |
         import os
+        import sys
         import json
         import math
         import argparse
@@ -51,7 +47,7 @@ implementation:
         import logging
         
         logging.basicConfig(level=logging.INFO)
-        logger = logging.getLogger(__name__)
+        logger = logging.getLogger('lora_training')
         
         def ensure_directory_exists(file_path):
             directory = os.path.dirname(file_path)
@@ -196,8 +192,8 @@ implementation:
         model = get_peft_model(model, lora_cfg)
         model.print_trainable_parameters()
         
-        train_split = dsd.get("train")
-        has_messages = "messages" in train_split.column_names if train_split else False
+        train_ds = dsd.get("train")
+        has_messages = "messages" in train_ds.column_names if train_ds else False
         use_chat = has_messages and maybe_chat_template(tokenizer)
         logger.info("Dataset has messages format: " + str(has_messages))
         logger.info("Using chat template: " + str(use_chat))
@@ -238,7 +234,7 @@ implementation:
         
         keep_cols = ["input_ids", "attention_mask"]
         logger.info("Tokenizing dataset...")
-        train_cols = train_split.column_names if train_split else []
+        train_cols = train_ds.column_names if train_ds else []
         cols_to_remove = [c for c in train_cols if c not in keep_cols]
         dsd = dsd.map(
             tokenize_example,
@@ -312,11 +308,12 @@ implementation:
             json.dump(run_config, f, indent=2)
         
         logger.info("=" * 60)
-        logger.info("Training complete!")
-        logger.info("LoRA adapters saved to: " + adapter_dir)
-        logger.info("Tokenizer saved to: " + output_dir)
-        logger.info("Configuration saved to: " + os.path.join(output_dir, "run_config.json"))
+        logger.info("✅ Fine-tuning complete!")
+        logger.info("→ LoRA adapters saved to: " + adapter_dir)
+        logger.info("→ Tokenizer saved to: " + output_dir)
+        logger.info("→ Configuration saved to: " + os.path.join(output_dir, "run_config.json"))
         logger.info("=" * 60)
+    args:
       - --model_name
       - {inputValue: model_name}
       - --processed_dataset
