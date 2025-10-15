@@ -86,7 +86,6 @@ implementation:
             return tmpl is not None and len(str(tmpl)) > 0
         
         def guess_lora_targets(model):
-            # Auto-detect LoRA target modules based on model architecture
             names = [n for n, _ in model.named_modules()]
             logger.info(f"Analyzing model architecture for LoRA targets...")
             
@@ -197,7 +196,8 @@ implementation:
         model = get_peft_model(model, lora_cfg)
         model.print_trainable_parameters()
         
-        has_messages = "messages" in dsd.get("train").column_names if "train" in dsd else False
+        train_ds = dsd.get("train")
+        has_messages = "messages" in train_ds.column_names if train_ds else False
         use_chat = has_messages and maybe_chat_template(tokenizer)
         logger.info("Dataset has messages format: " + str(has_messages))
         logger.info("Using chat template: " + str(use_chat))
@@ -206,7 +206,7 @@ implementation:
             if has_messages:
                 if use_chat:
                     try:
-                        msgs = ex.get("messages", [])
+                        msgs = ex.get('messages', [])
                         ids = tokenizer.apply_chat_template(
                             msgs,
                             tokenize=True,
@@ -214,31 +214,31 @@ implementation:
                             truncation=True,
                             max_length=2048
                         )
-                        return {"input_ids": ids, "attention_mask": [1] * len(ids)}
+                        return {'input_ids': ids, 'attention_mask': [1] * len(ids)}
                     except Exception as e:
-                        logger.warning("Chat template failed, using fallback: " + str(e))
-                        msgs = ex.get("messages", [])
-                        q = msgs[0].get("content", "") if len(msgs) > 0 else ""
-                        a = msgs[1].get("content", "") if len(msgs) > 1 else ""
-                        text = "User: " + q + "\nAssistant: " + a
+                        logger.warning('Chat template failed, using fallback: ' + str(e))
+                        msgs = ex.get('messages', [])
+                        q = msgs[0].get('content', '') if len(msgs) > 0 else ''
+                        a = msgs[1].get('content', '') if len(msgs) > 1 else ''
+                        text = 'User: ' + q + '\nAssistant: ' + a
                 else:
-                    msgs = ex.get("messages", [])
-                    q = msgs[0].get("content", "") if len(msgs) > 0 else ""
-                    a = msgs[1].get("content", "") if len(msgs) > 1 else ""
-                    text = "User: " + q + "\nAssistant: " + a
+                    msgs = ex.get('messages', [])
+                    q = msgs[0].get('content', '') if len(msgs) > 0 else ''
+                    a = msgs[1].get('content', '') if len(msgs) > 1 else ''
+                    text = 'User: ' + q + '\nAssistant: ' + a
                 
                 if not use_chat:
                     out = tokenizer(text, truncation=True, max_length=2048)
-                    return {"input_ids": out["input_ids"], "attention_mask": out["attention_mask"]}
+                    return {'input_ids': out['input_ids'], 'attention_mask': out['attention_mask']}
             else:
-                input_field = schema.get("input_field", "text")
-                text = ex.get(input_field, "")
+                input_field = schema.get('input_field', 'text')
+                text = ex.get(input_field, '')
                 out = tokenizer(text, truncation=True, max_length=2048)
-                return {"input_ids": out["input_ids"], "attention_mask": out["attention_mask"]}
+                return {'input_ids': out['input_ids'], 'attention_mask': out['attention_mask']}
         
-        keep_cols = ["input_ids", "attention_mask"]
+        keep_cols = ['input_ids', 'attention_mask']
         logger.info("Tokenizing dataset...")
-        train_cols = dsd.get("train").column_names if "train" in dsd else []
+        train_cols = train_ds.column_names if train_ds else []
         cols_to_remove = [c for c in train_cols if c not in keep_cols]
         dsd = dsd.map(
             tokenize_example,
@@ -247,7 +247,7 @@ implementation:
         )
         
         collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
-        train_dataset = dsd.get("train")
+        train_dataset = dsd.get('train')
         train_len = len(train_dataset) if train_dataset else 0
         total_steps = max(1, math.ceil(train_len / (args.batch_size * args.grad_accum_steps)))
         
