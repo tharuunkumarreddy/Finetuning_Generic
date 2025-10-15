@@ -78,14 +78,6 @@ implementation:
             else:
                 return token_str if token_str and token_str != "None" else None
 
-        def load_schema(ds_dir):
-            schema_path = os.path.join(ds_dir, "schema.json")
-            if not os.path.exists(schema_path):
-                logger.warning(f"schema.json not found in {ds_dir}, using defaults")
-                return {}
-            with open(schema_path) as f:
-                return json.load(f)
-
         def maybe_chat_template(tokenizer):
             tmpl = getattr(tokenizer, "chat_template", None)
             return tmpl is not None and len(str(tmpl)) > 0
@@ -133,9 +125,8 @@ implementation:
         ensure_directory_exists(args.lora_adapters)
         output_dir = args.lora_adapters
 
-        logger.info(f"Loading schema from {args.schema_json}")
-        with open(args.schema_json, 'r') as f:
-            schema = json.load(f)
+        logger.info(f"Parsing schema from input")
+        schema = json.loads(args.schema_json)
         logger.info(f"Schema loaded: {json.dumps(schema, indent=2)}")
 
         logger.info(f"Loading dataset from {args.processed_dataset}")
@@ -360,4 +351,5 @@ implementation:
         value: {inputValue: target_modules}
       - name: HF_TOKEN
         value: {inputValue: hf_token}
+
 
