@@ -6,7 +6,7 @@ description: >
 inputs:
   - {name: model_name, type: String, description: 'Hugging Face model ID or path (e.g., meta-llama/Llama-2-7b-hf)'}
   - {name: processed_dataset, type: Dataset, description: 'Prepared dataset from Generic Dataset Preparation component'}
-  - {name: schema_json, type: Data, description: 'Schema metadata JSON from Generic Dataset Preparation component'}
+  - {name: schema_json, type: Dataset, description: 'Schema metadata JSON from Generic Dataset Preparation component'}
   - {name: epochs, type: Integer, description: 'Number of training epochs', default: '1'}
   - {name: batch_size, type: Integer, description: 'Per-device training batch size', default: '2'}
   - {name: learning_rate, type: Float, description: 'Learning rate for optimizer', default: '0.0002'}
@@ -124,10 +124,11 @@ implementation:
 
         ensure_directory_exists(args.lora_adapters)
         output_dir = args.lora_adapters
-
-        logger.info(f"Parsing schema from input")
-        schema = json.loads(args.schema_json)
-        logger.info(f"Schema loaded: {json.dumps(schema, indent=2)}")
+        
+        logger.info(f"Loading schema from {args.schema_json}")
+        with open(args.schema_json, 'r') as f:
+            schema = json.load(f)
+        logger.info(f"Schema loaded: {json.dumps(schema, indent=2)}")        
 
         logger.info(f"Loading dataset from {args.processed_dataset}")
         dsd = load_from_disk(args.processed_dataset)
@@ -331,7 +332,7 @@ implementation:
           inputPath: processed_dataset
       - name: SCHEMA_JSON
         value:
-          inputValue: schema_json
+          inputPath: schema_json
       - name: EPOCHS
         value:
           inputValue: epochs
@@ -365,6 +366,7 @@ implementation:
       - name: HF_TOKEN
         value:
           inputValue: hf_token
+
 
 
 
