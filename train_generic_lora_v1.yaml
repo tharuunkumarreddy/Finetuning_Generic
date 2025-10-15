@@ -33,8 +33,9 @@ implementation:
         echo "Installing dependencies..."
         pip install --no-cache-dir peft > /dev/null 2>&1
         echo "Dependencies installed. Starting training script..."
-        exec python3 "$0" "$@"
-      - |
+        
+        # Write Python script to temporary file
+        cat > /tmp/train_lora.py << 'EOF'
         import os
         import sys
         import json
@@ -309,6 +310,10 @@ implementation:
         logger.info("→ Tokenizer saved to: " + output_dir)
         logger.info("→ Configuration saved to: " + os.path.join(output_dir, "run_config.json"))
         logger.info("=" * 60)
+        EOF
+        
+        # Execute the Python script with all arguments
+        exec python3 /tmp/train_lora.py "$@"
     args:
       - --model_name
       - {inputValue: model_name}
