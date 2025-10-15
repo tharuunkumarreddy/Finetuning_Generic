@@ -328,7 +328,9 @@ implementation:
           --lora_dropout "${LORA_DROPOUT}" \
           --target_modules "${TARGET_MODULES}" \
           --hf_token "${HF_TOKEN}" \
-          --lora_adapters "${LORA_ADAPTERS}"
+          --lora_adapters "$1"
+    args:
+      - {outputPath: lora_adapters}
     env:
       - name: MODEL_NAME
         value: {inputValue: model_name}
@@ -358,6 +360,3 @@ implementation:
         value: {inputValue: target_modules}
       - name: HF_TOKEN
         value: {inputValue: hf_token}
-      - name: LORA_ADAPTERS
-        value: {outputPath: lora_adapters}
-        
