@@ -6,7 +6,7 @@ description: >
 inputs:
   - {name: model_name, type: String, description: 'Hugging Face model ID or path (e.g., meta-llama/Llama-2-7b-hf)'}
   - {name: processed_dataset, type: Dataset, description: 'Prepared dataset from Generic Dataset Preparation component'}
-  - {name: schema_json, type: String, description: 'Schema metadata JSON from Generic Dataset Preparation component'}
+  - {name: schema_json, type: Data, description: 'Schema metadata JSON from Generic Dataset Preparation component'}
   - {name: epochs, type: Integer, description: 'Number of training epochs', default: '1'}
   - {name: batch_size, type: Integer, description: 'Per-device training batch size', default: '2'}
   - {name: learning_rate, type: Float, description: 'Learning rate for optimizer', default: '0.0002'}
@@ -365,6 +365,7 @@ implementation:
       - name: HF_TOKEN
         value:
           inputValue: hf_token
+
 
 
 
