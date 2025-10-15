@@ -312,36 +312,52 @@ implementation:
         logger.info("=" * 60)
         EOF
         
-        # Execute the Python script with all arguments
-        exec python3 /tmp/train_lora.py "$@"
-    args:
-      - --model_name
-      - {inputValue: model_name}
-      - --processed_dataset
-      - {inputPath: processed_dataset}
-      - --schema_json
-      - {inputPath: schema_json}
-      - --epochs
-      - {inputValue: epochs}
-      - --batch_size
-      - {inputValue: batch_size}
-      - --learning_rate
-      - {inputValue: learning_rate}
-      - --grad_accum_steps
-      - {inputValue: grad_accum_steps}
-      - --precision
-      - {inputValue: precision}
-      - --quantization_bits
-      - {inputValue: quantization_bits}
-      - --lora_r
-      - {inputValue: lora_r}
-      - --lora_alpha
-      - {inputValue: lora_alpha}
-      - --lora_dropout
-      - {inputValue: lora_dropout}
-      - --target_modules
-      - {inputValue: target_modules}
-      - --hf_token
-      - {inputValue: hf_token}
-      - --lora_adapters
-      - {outputPath: lora_adapters}
+        # Execute the Python script with arguments from environment
+        exec python3 /tmp/train_lora.py \
+          --model_name "${MODEL_NAME}" \
+          --processed_dataset "${PROCESSED_DATASET}" \
+          --schema_json "${SCHEMA_JSON}" \
+          --epochs "${EPOCHS}" \
+          --batch_size "${BATCH_SIZE}" \
+          --learning_rate "${LEARNING_RATE}" \
+          --grad_accum_steps "${GRAD_ACCUM_STEPS}" \
+          --precision "${PRECISION}" \
+          --quantization_bits "${QUANTIZATION_BITS}" \
+          --lora_r "${LORA_R}" \
+          --lora_alpha "${LORA_ALPHA}" \
+          --lora_dropout "${LORA_DROPOUT}" \
+          --target_modules "${TARGET_MODULES}" \
+          --hf_token "${HF_TOKEN}" \
+          --lora_adapters "${LORA_ADAPTERS}"
+    env:
+      - name: MODEL_NAME
+        value: {inputValue: model_name}
+      - name: PROCESSED_DATASET
+        value: {inputPath: processed_dataset}
+      - name: SCHEMA_JSON
+        value: {inputPath: schema_json}
+      - name: EPOCHS
+        value: {inputValue: epochs}
+      - name: BATCH_SIZE
+        value: {inputValue: batch_size}
+      - name: LEARNING_RATE
+        value: {inputValue: learning_rate}
+      - name: GRAD_ACCUM_STEPS
+        value: {inputValue: grad_accum_steps}
+      - name: PRECISION
+        value: {inputValue: precision}
+      - name: QUANTIZATION_BITS
+        value: {inputValue: quantization_bits}
+      - name: LORA_R
+        value: {inputValue: lora_r}
+      - name: LORA_ALPHA
+        value: {inputValue: lora_alpha}
+      - name: LORA_DROPOUT
+        value: {inputValue: lora_dropout}
+      - name: TARGET_MODULES
+        value: {inputValue: target_modules}
+      - name: HF_TOKEN
+        value: {inputValue: hf_token}
+      - name: LORA_ADAPTERS
+        value: {outputPath: lora_adapters}
+        
