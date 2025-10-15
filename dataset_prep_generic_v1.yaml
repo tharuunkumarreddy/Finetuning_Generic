@@ -269,7 +269,8 @@ implementation:
       - --processed_dataset
       - {outputPath: processed_dataset}
       - --schema_json
-      - {outputValue: schema_json}
+      - {outputPath: schema_json}
+
 
 
 
