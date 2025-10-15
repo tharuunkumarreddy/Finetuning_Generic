@@ -13,7 +13,7 @@ inputs:
   - {name: access_token, type: string, description: 'Bearer access token for API auth'}     
 
 outputs:
-  - {name: processed_dataset, type: Dataset}
+  - {name: processed_dataset, type: Data}
   - {name: schema_json, type: Data}   
 
 implementation:
@@ -270,6 +270,7 @@ implementation:
       - {outputPath: processed_dataset}
       - --schema_json
       - {outputPath: schema_json}
+
 
 
 
