@@ -316,6 +316,51 @@ implementation:
           --target_modules "${TARGET_MODULES}" \
           --hf_token "${HF_TOKEN}" \
           --lora_adapters "$1"
+
     args:
       - {outputPath: lora_adapters}
+    env:
+      - name: MODEL_NAME
+        value:
+          inputValue: model_name
+      - name: PROCESSED_DATASET
+        value:
+          inputPath: processed_dataset
+      - name: SCHEMA_JSON
+        value:
+          inputPath: schema_json
+      - name: EPOCHS
+        value:
+          inputValue: epochs
+      - name: BATCH_SIZE
+        value:
+          inputValue: batch_size
+      - name: LEARNING_RATE
+        value:
+          inputValue: learning_rate
+      - name: GRAD_ACCUM_STEPS
+        value:
+          inputValue: grad_accum_steps
+      - name: PRECISION
+        value:
+          inputValue: precision
+      - name: QUANTIZATION_BITS
+        value:
+          inputValue: quantization_bits
+      - name: LORA_R
+        value:
+          inputValue: lora_r
+      - name: LORA_ALPHA
+        value:
+          inputValue: lora_alpha
+      - name: LORA_DROPOUT
+        value:
+          inputValue: lora_dropout
+      - name: TARGET_MODULES
+        value:
+          inputValue: target_modules
+      - name: HF_TOKEN
+        value:
+          inputValue: hf_token
+
 
