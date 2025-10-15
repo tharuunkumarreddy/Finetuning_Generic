@@ -31,7 +31,7 @@ implementation:
       - |
         set -e
         echo "Installing dependencies..."
-        pip install --no-cache-dir torch transformers datasets peft accelerate bitsandbytes sentencepiece safetensors > /dev/null
+        pip install --no-cache-dir peft
         echo "Dependencies installed. Starting training script..."
         python3 - <<'PYCODE'
         import os
@@ -340,3 +340,4 @@ implementation:
       - {inputValue: hf_token}
       - --lora_adapters
       - {outputPath: lora_adapters}
+
