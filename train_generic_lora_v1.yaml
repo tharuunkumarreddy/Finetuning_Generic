@@ -1,6 +1,5 @@
 name: Generic LoRA Fine-tuning
 description: Fine-tunes any LLM using PEFT LoRA adapters. Supports Hugging Face models with automatic target module detection. Produces LoRA adapters ready for merging or inference.
-
 inputs:
   - {name: model_name, type: String, description: 'Hugging Face model ID or path (e.g., meta-llama/Llama-2-7b-hf)'}
   - {name: processed_dataset, type: Dataset, description: 'Prepared dataset from Generic Dataset Preparation component'}
@@ -16,10 +15,8 @@ inputs:
   - {name: lora_dropout, type: Float, description: 'LoRA dropout rate', default: '0.05'}
   - {name: target_modules, type: String, description: 'Comma-separated LoRA target modules (auto-detect if empty)', default: ''}
   - {name: hf_token, type: String, description: 'Hugging Face access token for gated models', default: ''}
-
 outputs:
   - {name: lora_adapters, type: Model}
-
 implementation:
   container:
     image: nikhilv215/nesy-factory:v22
@@ -216,12 +213,12 @@ implementation:
                         msgs = ex.get("messages", [])
                         q = msgs[0].get("content", "") if len(msgs) > 0 else ""
                         a = msgs[1].get("content", "") if len(msgs) > 1 else ""
-                        text = "User: " + q + "\nAssistant: " + a
+                        text = "User: " + q + "\\nAssistant: " + a
                 else:
                     msgs = ex.get("messages", [])
                     q = msgs[0].get("content", "") if len(msgs) > 0 else ""
                     a = msgs[1].get("content", "") if len(msgs) > 1 else ""
-                    text = "User: " + q + "\nAssistant: " + a
+                    text = "User: " + q + "\\nAssistant: " + a
                 
                 if not use_chat:
                     out = tokenizer(text, truncation=True, max_length=2048)
