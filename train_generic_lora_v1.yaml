@@ -1,216 +1,204 @@
-name: Generic LoRA Fine-Tuning
-description: >
-  Generic LoRA fine-tuning component using PEFT for Hugging Face models.
-  Consumes processed dataset and schema.json from the dataset preparation step,
-  trains a LoRA adapter, and saves the fine-tuned adapter and tokenizer artifacts.
+name: Generic LoRA Fine-tuning
+description: Fine-tunes any LLM using PEFT LoRA adapters. Supports Hugging Face models with automatic target module detection. Produces LoRA adapters ready for merging or inference.
 
 inputs:
-  - name: model_name
-    type: String
-    description: 'Base model name or path from Hugging Face'
-  - name: processed_dataset
-    type: Dataset
-    description: 'Path to prepared dataset from Generic Dataset Preparation'
-  - name: schema_json
-    type: Data
-    description: 'Schema metadata JSON from dataset preparation'
-  - name: hf_token
-    type: String
-    default: ''
-    description: 'Optional Hugging Face access token for private models'
-  - name: epochs
-    type: Integer
-    default: 1
-    description: 'Number of fine-tuning epochs'
-  - name: batch_size
-    type: Integer
-    default: 2
-    description: 'Batch size per device'
-  - name: lr
-    type: Float
-    default: 0.0002
-    description: 'Learning rate'
-  - name: grad_accum
-    type: Integer
-    default: 4
-    description: 'Gradient accumulation steps'
-  - name: precision
-    type: String
-    default: 'fp32'
-    description: 'Precision mode: fp32, fp16, or bf16'
-  - name: bits
-    type: Integer
-    default: 0
-    description: 'Quantization bits (0, 4, or 8)'
-  - name: lora_r
-    type: Integer
-    default: 8
-    description: 'LoRA rank dimension'
-  - name: lora_alpha
-    type: Integer
-    default: 16
-    description: 'LoRA alpha scaling factor'
-  - name: lora_dropout
-    type: Float
-    default: 0.05
-    description: 'LoRA dropout probability'
-  - name: target_modules
-    type: String
-    default: ''
-    description: 'Comma-separated target module names (optional)'
+  - { name: model_name,        type: String,  description: 'Hugging Face model ID or path (e.g., meta-llama/Llama-2-7b-hf)' }
+  - { name: processed_dataset, type: Dataset, description: 'Prepared dataset from Generic Dataset Preparation component' }
+  - { name: schema_json,       type: Data,    description: 'Schema metadata JSON from Generic Dataset Preparation component' }
+  - { name: epochs,            type: Integer, description: 'Number of training epochs', default: 1 }
+  - { name: batch_size,        type: Integer, description: 'Per-device training batch size', default: 2 }
+  - { name: learning_rate,     type: Float,   description: 'Learning rate for optimizer', default: 0.0002 }
+  - { name: grad_accum_steps,  type: Integer, description: 'Gradient accumulation steps', default: 4 }
+  - { name: precision,         type: String,  description: 'Training precision: fp32, fp16, or bf16', default: fp32 }
+  - { name: quantization_bits, type: Integer, description: 'Quantization bits (0=full, 4=4bit, 8=8bit)', default: 0 }
+  - { name: lora_r,            type: Integer, description: 'LoRA rank parameter', default: 8 }
+  - { name: lora_alpha,        type: Integer, description: 'LoRA alpha parameter', default: 16 }
+  - { name: lora_dropout,      type: Float,   description: 'LoRA dropout rate', default: 0.05 }
+  - { name: target_modules,    type: String,  description: 'Comma-separated LoRA target modules (auto-detect if empty)', default: '' }
+  - { name: hf_token,          type: String,  description: 'Hugging Face access token for gated models', default: '' }
 
 outputs:
-  - name: lora_out
-    type: Model
-    description: 'Output directory containing LoRA adapters, tokenizer, and config files'
+  - { name: lora_adapters, type: Model }
 
 implementation:
   container:
     image: nikhilv215/nesy-factory:v22
     command:
-      - sh
-      - -c
-      - |
-        exec "$0" "$@"
       - python3
       - -u
       - -c
       - |
-        import os
-        import json
-        import math
-        import argparse
+        import os, json, math, argparse, torch, logging
         from datasets import load_from_disk
-        from transformers import (
-            AutoTokenizer,
-            AutoModelForCausalLM,
-            DataCollatorForLanguageModeling,
-            Trainer,
-            TrainingArguments,
-        )
+        from transformers import AutoTokenizer, AutoModelForCausalLM, DataCollatorForLanguageModeling, Trainer, TrainingArguments
         from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
-        # ------------------ Argparse ------------------
-        parser = argparse.ArgumentParser(description="Generic LoRA fine-tuning")
-        parser.add_argument("--model_name", required=True)
-        parser.add_argument("--processed_dataset", required=True)
-        parser.add_argument("--schema_json", required=True)
-        parser.add_argument("--hf_token", default=None)
-        parser.add_argument("--epochs", type=int, default=1)
-        parser.add_argument("--batch_size", type=int, default=2)
-        parser.add_argument("--lr", type=float, default=2e-4)
-        parser.add_argument("--grad_accum", type=int, default=4)
-        parser.add_argument("--precision", default="fp32", choices=["fp32", "fp16", "bf16"])
-        parser.add_argument("--bits", type=int, default=0, choices=[0, 4, 8])
-        parser.add_argument("--lora_r", type=int, default=8)
-        parser.add_argument("--lora_alpha", type=int, default=16)
-        parser.add_argument("--lora_dropout", type=float, default=0.05)
-        parser.add_argument("--target_modules", default="")
-        parser.add_argument("--lora_out", required=True)
-        args = parser.parse_args()
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger('lora_training')
 
-        os.makedirs(args.lora_out, exist_ok=True)
+        def ensure_directory_exists(file_path):
+            directory = os.path.dirname(file_path)
+            if directory and not os.path.exists(directory):
+                os.makedirs(directory, exist_ok=True)
 
-        print(f"[INFO] Loading dataset from {args.processed_dataset}")
-        dsd = load_from_disk(args.processed_dataset)
+        def get_token_value(token_arg):
+            if not token_arg:
+                return None
+            token_str = str(token_arg).strip()
+            if os.path.exists(token_str):
+                try:
+                    with open(token_str, 'r') as f:
+                        content = f.read().strip()
+                        return content if content else None
+                except Exception as e:
+                    logger.error(f"Failed to read token file: {e}")
+                    return None
+            else:
+                return token_str if token_str and token_str != "None" else None
 
-        print(f"[INFO] Loading schema from {args.schema_json}")
-        with open(args.schema_json) as f:
-            schema = json.load(f)
-
-        # ------------------ Model & Tokenizer ------------------
-        print(f"[INFO] Loading model/tokenizer from Hugging Face: {args.model_name}")
-        hf_auth = args.hf_token.strip() if args.hf_token and args.hf_token.strip() else None
-        tokenizer = AutoTokenizer.from_pretrained(args.model_name, use_fast=True, trust_remote_code=True, token=hf_auth)
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-
-        model = AutoModelForCausalLM.from_pretrained(
-            args.model_name,
-            use_safetensors=True,
-            trust_remote_code=True,
-            token=hf_auth
-        )
-
-        if args.bits in (4, 8):
-            model = prepare_model_for_kbit_training(model)
-
-        # ------------------ Auto-detect LoRA targets ------------------
-        def guess_lora_targets(model):
-            names = [n for n, _ in model.named_modules()]
-            if any("q_proj" in n for n in names):
-                return ["q_proj", "v_proj"]
-            elif any("c_attn" in n for n in names):
-                return ["c_attn", "c_proj"]
-            elif any("fc1" in n for n in names):
-                return ["fc1", "fc2"]
-            elif any("Wqkv" in n for n in names):
-                return ["Wqkv"]
-            elif any("query_key_value" in n for n in names):
-                return ["query_key_value"]
-            print("[WARN] Could not auto-detect LoRA targets; defaulting to all Linear layers.")
-            return ["lm_head"]
-
-        if args.target_modules.strip():
-            target_modules = [t.strip() for t in args.target_modules.split(",") if t.strip()]
-        else:
-            target_modules = guess_lora_targets(model)
-            print(f"[INFO] Auto-detected LoRA target modules: {target_modules}")
-
-        # ------------------ LoRA Config ------------------
-        lora_cfg = LoraConfig(
-            r=args.lora_r,
-            lora_alpha=args.lora_alpha,
-            lora_dropout=args.lora_dropout,
-            target_modules=target_modules,
-            bias="none",
-            task_type="CAUSAL_LM"
-        )
-        model = get_peft_model(model, lora_cfg)
-        model.print_trainable_parameters()
-
-        # ------------------ Tokenization ------------------
-        has_messages = schema.get("has_messages", False)
         def maybe_chat_template(tokenizer):
             tmpl = getattr(tokenizer, "chat_template", None)
             return tmpl is not None and len(str(tmpl)) > 0
 
+        def guess_lora_targets(model):
+            names = [n for n, _ in model.named_modules()]
+            logger.info("Analyzing model architecture for LoRA targets...")
+            if any("q_proj" in n for n in names):
+                targets = ["q_proj", "v_proj"]
+            elif any("c_attn" in n for n in names):
+                targets = ["c_attn", "c_proj"]
+            elif any("fc1" in n for n in names):
+                targets = ["fc1", "fc2"]
+            elif any("Wqkv" in n for n in names):
+                targets = ["Wqkv"]
+            elif any("query_key_value" in n for n in names):
+                targets = ["query_key_value"]
+            else:
+                logger.warning("Could not auto-detect LoRA targets; defaulting to common linear layers")
+                targets = ["q_proj", "v_proj"]
+            logger.info(f"Selected LoRA target modules: {targets}")
+            return targets
+
+        parser = argparse.ArgumentParser(description="Generic LoRA fine-tuning")
+        parser.add_argument("--model_name", required=True)
+        parser.add_argument("--processed_dataset", required=True)
+        parser.add_argument("--schema_json", required=True)
+        parser.add_argument("--epochs", type=int, default=1)
+        parser.add_argument("--batch_size", type=int, default=2)
+        parser.add_argument("--learning_rate", type=float, default=2e-4)
+        parser.add_argument("--grad_accum_steps", type=int, default=4)
+        parser.add_argument("--precision", default="fp32")
+        parser.add_argument("--quantization_bits", type=int, default=0)
+        parser.add_argument("--lora_r", type=int, default=8)
+        parser.add_argument("--lora_alpha", type=int, default=16)
+        parser.add_argument("--lora_dropout", type=float, default=0.05)
+        parser.add_argument("--target_modules", default="")
+        parser.add_argument("--hf_token", default="")
+        parser.add_argument("--lora_adapters", required=True)
+        args = parser.parse_args()
+
+        hf_token = get_token_value(args.hf_token)
+        logger.info(f"HF Token present: {bool(hf_token)}")
+
+        ensure_directory_exists(args.lora_adapters)
+        output_dir = args.lora_adapters
+
+        logger.info(f"Loading schema from {args.schema_json}")
+        with open(args.schema_json, 'r') as f:
+            schema = json.load(f)
+        logger.info("Schema loaded")
+
+        logger.info(f"Loading dataset from {args.processed_dataset}")
+        dsd = load_from_disk(args.processed_dataset)
+
+        logger.info(f"Loading model/tokenizer from: {args.model_name}")
+        tokenizer_kwargs = {"use_fast": True, "trust_remote_code": True}
+        if hf_token:
+            tokenizer_kwargs["token"] = hf_token
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name, **tokenizer_kwargs)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+            logger.info("Set pad_token to eos_token")
+
+        model_kwargs = {"trust_remote_code": True, "torch_dtype": torch.float32}
+        if hf_token:
+            model_kwargs["token"] = hf_token
+        if args.precision == "bf16":
+            model_kwargs["torch_dtype"] = torch.bfloat16
+        elif args.precision == "fp16":
+            model_kwargs["torch_dtype"] = torch.float16
+
+        try:
+            model_kwargs["use_safetensors"] = True
+            model = AutoModelForCausalLM.from_pretrained(args.model_name, **model_kwargs)
+        except Exception as e:
+            logger.warning(f"Failed to load with safetensors, trying without: {e}")
+            model_kwargs.pop("use_safetensors", None)
+            model = AutoModelForCausalLM.from_pretrained(args.model_name, **model_kwargs)
+
+        if args.quantization_bits in (4, 8):
+            logger.info(f"Preparing model for {args.quantization_bits}-bit training")
+            model = prepare_model_for_kbit_training(model)
+
+        target_modules = [t.strip() for t in args.target_modules.split(",") if t.strip()] if args.target_modules.strip() else guess_lora_targets(model)
+
+        lora_cfg = LoraConfig(
+            r=args.lora_r, lora_alpha=args.lora_alpha, lora_dropout=args.lora_dropout,
+            target_modules=target_modules, bias="none", task_type="CAUSAL_LM"
+        )
+        model = get_peft_model(model, lora_cfg)
+        model.print_trainable_parameters()
+
+        has_messages = ("train" in dsd) and ("messages" in dsd["train"].column_names)
         use_chat = has_messages and maybe_chat_template(tokenizer)
-        print(f"[INFO] Chat template supported: {use_chat}")
+        logger.info(f"Dataset has messages: {has_messages} | Using chat template: {use_chat}")
 
         def tokenize_example(ex):
             if has_messages:
                 if use_chat:
-                    ids = tokenizer.apply_chat_template(
-                        ex["messages"],
-                        tokenize=True,
-                        add_generation_prompt=True,
-                        truncation=True
-                    )
-                    return {"input_ids": ids, "attention_mask": [1] * len(ids)}
+                    try:
+                        msgs = ex.get("messages", [])
+                        ids = tokenizer.apply_chat_template(
+                            msgs, tokenize=True, add_generation_prompt=False, truncation=True, max_length=2048
+                        )
+                        return {"input_ids": ids, "attention_mask": [1] * len(ids)}
+                    except Exception as e:
+                        logger.warning(f"Chat template failed, falling back: {e}")
+                        msgs = ex.get("messages", [])
+                        q = msgs[0].get("content", "") if len(msgs) > 0 else ""
+                        a = msgs[1].get("content", "") if len(msgs) > 1 else ""
+                        text = "User: " + q + "\nAssistant: " + a
+                        out = tokenizer(text, truncation=True, max_length=2048)
+                        return {"input_ids": out["input_ids"], "attention_mask": out["attention_mask"]}
                 else:
-                    q = ex["messages"][0]["content"] if len(ex["messages"]) > 0 else ""
-                    a = ex["messages"][1]["content"] if len(ex["messages"]) > 1 else ""
-                    text = f"User: {q}\nAssistant: {a}"
-                    out = tokenizer(text, truncation=True)
+                    msgs = ex.get("messages", [])
+                    q = msgs[0].get("content", "") if len(msgs) > 0 else ""
+                    a = msgs[1].get("content", "") if len(msgs) > 1 else ""
+                    text = "User: " + q + "\nAssistant: " + a
+                    out = tokenizer(text, truncation=True, max_length=2048)
                     return {"input_ids": out["input_ids"], "attention_mask": out["attention_mask"]}
             else:
-                text = ex.get(schema.get("input_field"), "")
-                out = tokenizer(text, truncation=True)
+                input_field = schema.get("input_field", "text")
+                text = ex.get(input_field, "")
+                out = tokenizer(text, truncation=True, max_length=2048)
                 return {"input_ids": out["input_ids"], "attention_mask": out["attention_mask"]}
 
         keep_cols = ["input_ids", "attention_mask"]
-        dsd = dsd.map(tokenize_example, remove_columns=[c for c in dsd["train"].column_names if c not in keep_cols])
+        logger.info("Tokenizing dataset...")
+        train_cols = dsd["train"].column_names if "train" in dsd else []
+        cols_to_remove = [c for c in train_cols if c not in keep_cols]
+        dsd = dsd.map(tokenize_example, remove_columns=cols_to_remove, desc="Tokenizing")
 
         collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
-        total_steps = max(1, math.ceil(len(dsd["train"]) / (args.batch_size * args.grad_accum)))
+        train_dataset = dsd.get("train")
+        train_len = len(train_dataset) if train_dataset is not None else 0
+        total_steps = max(1, math.ceil(train_len / (args.batch_size * args.grad_accum_steps)))
 
-        # ------------------ Training ------------------
         training_args = TrainingArguments(
-            output_dir=args.lora_out,
+            output_dir=output_dir,
             per_device_train_batch_size=args.batch_size,
-            gradient_accumulation_steps=args.grad_accum,
-            learning_rate=args.lr,
+            gradient_accumulation_steps=args.grad_accum_steps,
+            learning_rate=args.learning_rate,
             num_train_epochs=args.epochs,
             warmup_ratio=0.03,
             logging_steps=max(1, total_steps // 10),
@@ -219,57 +207,78 @@ implementation:
             report_to="none",
             bf16=(args.precision == "bf16"),
             fp16=(args.precision == "fp16"),
+            save_safetensors=True,
+            dataloader_num_workers=0,
+            remove_unused_columns=False,
         )
 
-        trainer = Trainer(
-            model=model,
-            args=training_args,
-            train_dataset=dsd["train"],
-            data_collator=collator
-        )
+        trainer = Trainer(model=model, args=training_args, train_dataset=train_dataset, data_collator=collator)
 
-        print("[INFO] Starting LoRA fine-tuning...")
+        logger.info("=" * 60)
+        logger.info(f"Starting LoRA fine-tuning | samples={train_len} | steps={total_steps} | eff_batch={args.batch_size * args.grad_accum_steps}")
+        logger.info("=" * 60)
+
         trainer.train()
 
-        # ------------------ Save Outputs ------------------
-        adapter_dir = os.path.join(args.lora_out, "adapter")
+        adapter_dir = os.path.join(output_dir, "adapter")
+        os.makedirs(adapter_dir, exist_ok=True)
+        logger.info("Saving LoRA adapters to " + adapter_dir)
         model.save_pretrained(adapter_dir)
-        tokenizer.save_pretrained(args.lora_out)
+        tokenizer.save_pretrained(output_dir)
 
-        with open(os.path.join(args.lora_out, "run_config.json"), "w") as f:
-            json.dump(vars(args), f, indent=2)
+        run_config = {
+            "model_name": args.model_name,
+            "epochs": args.epochs,
+            "batch_size": args.batch_size,
+            "learning_rate": args.learning_rate,
+            "grad_accum_steps": args.grad_accum_steps,
+            "precision": args.precision,
+            "quantization_bits": args.quantization_bits,
+            "lora_r": args.lora_r,
+            "lora_alpha": args.lora_alpha,
+            "lora_dropout": args.lora_dropout,
+            "target_modules": target_modules,
+            "total_steps": total_steps,
+            "num_train_samples": train_len,
+        }
+        with open(os.path.join(output_dir, "run_config.json"), "w") as f:
+            json.dump(run_config, f, indent=2)
 
-        print("\n✅ Fine-tuning complete!")
-        print(f"→ LoRA adapters saved to: {adapter_dir}")
-        print(f"→ You can now merge them with the base model.\n")
+        logger.info("=" * 60)
+        logger.info("✅ Fine-tuning complete!")
+        logger.info("→ LoRA adapters: " + adapter_dir)
+        logger.info("→ Tokenizer: " + output_dir)
+        logger.info("→ Config: " + os.path.join(output_dir, "run_config.json"))
+        logger.info("=" * 60)
+
     args:
       - --model_name
-      - inputValue: model_name
+      - { inputValue: model_name }
       - --processed_dataset
-      - inputPath: processed_dataset
+      - { inputPath: processed_dataset }
       - --schema_json
-      - inputPath: schema_json
-      - --hf_token
-      - inputValue: hf_token
+      - { inputPath: schema_json }
       - --epochs
-      - inputValue: epochs
+      - { inputValue: epochs }
       - --batch_size
-      - inputValue: batch_size
-      - --lr
-      - inputValue: lr
-      - --grad_accum
-      - inputValue: grad_accum
+      - { inputValue: batch_size }
+      - --learning_rate
+      - { inputValue: learning_rate }
+      - --grad_accum_steps
+      - { inputValue: grad_accum_steps }
       - --precision
-      - inputValue: precision
-      - --bits
-      - inputValue: bits
+      - { inputValue: precision }
+      - --quantization_bits
+      - { inputValue: quantization_bits }
       - --lora_r
-      - inputValue: lora_r
+      - { inputValue: lora_r }
       - --lora_alpha
-      - inputValue: lora_alpha
+      - { inputValue: lora_alpha }
       - --lora_dropout
-      - inputValue: lora_dropout
+      - { inputValue: lora_dropout }
       - --target_modules
-      - inputValue: target_modules
-      - --lora_out
-      - outputPath: lora_out
+      - { inputValue: target_modules }
+      - --hf_token
+      - { inputValue: hf_token }
+      - --lora_adapters
+      - { outputPath: lora_adapters }
