@@ -5,23 +5,64 @@ description: >
   trains a LoRA adapter, and saves the fine-tuned adapter and tokenizer artifacts.
 
 inputs:
-  - {name: model_name, type: String, description: 'Base model name or path from Hugging Face'}
-  - {name: processed_dataset, type: Dataset, description: 'Path to prepared dataset from Generic Dataset Preparation'}
-  - {name: schema_json, type: Data, description: 'Schema metadata JSON from dataset preparation'}
-  - {name: hf_token, type: String, default: '', description: 'Optional Hugging Face access token for private models'}
-  - {name: epochs, type: Integer, default: 1, description: 'Number of fine-tuning epochs'}
-  - {name: batch_size, type: Integer, default: 2, description: 'Batch size per device'}
-  - {name: lr, type: Float, default: 0.0002, description: 'Learning rate'}
-  - {name: grad_accum, type: Integer, default: 4, description: 'Gradient accumulation steps'}
-  - {name: precision, type: String, default: 'fp32', description: 'Precision mode: fp32, fp16, or bf16'}
-  - {name: bits, type: Integer, default: 0, description: 'Quantization bits (0, 4, or 8)'}
-  - {name: lora_r, type: Integer, default: 8, description: 'LoRA rank dimension'}
-  - {name: lora_alpha, type: Integer, default: 16, description: 'LoRA alpha scaling factor'}
-  - {name: lora_dropout, type: Float, default: 0.05, description: 'LoRA dropout probability'}
-  - {name: target_modules, type: String, default: '', description: 'Comma-separated target module names (optional)'}
+  - name: model_name
+    type: String
+    description: 'Base model name or path from Hugging Face'
+  - name: processed_dataset
+    type: Dataset
+    description: 'Path to prepared dataset from Generic Dataset Preparation'
+  - name: schema_json
+    type: Data
+    description: 'Schema metadata JSON from dataset preparation'
+  - name: hf_token
+    type: String
+    default: ''
+    description: 'Optional Hugging Face access token for private models'
+  - name: epochs
+    type: Integer
+    default: 1
+    description: 'Number of fine-tuning epochs'
+  - name: batch_size
+    type: Integer
+    default: 2
+    description: 'Batch size per device'
+  - name: lr
+    type: Float
+    default: 0.0002
+    description: 'Learning rate'
+  - name: grad_accum
+    type: Integer
+    default: 4
+    description: 'Gradient accumulation steps'
+  - name: precision
+    type: String
+    default: 'fp32'
+    description: 'Precision mode: fp32, fp16, or bf16'
+  - name: bits
+    type: Integer
+    default: 0
+    description: 'Quantization bits (0, 4, or 8)'
+  - name: lora_r
+    type: Integer
+    default: 8
+    description: 'LoRA rank dimension'
+  - name: lora_alpha
+    type: Integer
+    default: 16
+    description: 'LoRA alpha scaling factor'
+  - name: lora_dropout
+    type: Float
+    default: 0.05
+    description: 'LoRA dropout probability'
+  - name: target_modules
+    type: String
+    default: ''
+    description: 'Comma-separated target module names (optional)'
 
 outputs:
-  - {name: lora_out, type: Model, description: 'Output directory containing LoRA adapters, tokenizer, and config files'}
+  - name: lora_out
+    type: Model
+    description: 'Output directory containing LoRA adapters, tokenizer, and config files'
 
 implementation:
   container:
@@ -198,37 +239,37 @@ implementation:
         with open(os.path.join(args.lora_out, "run_config.json"), "w") as f:
             json.dump(vars(args), f, indent=2)
 
-        print("\\n✅ Fine-tuning complete!")
+        print("\n✅ Fine-tuning complete!")
         print(f"→ LoRA adapters saved to: {adapter_dir}")
-        print(f"→ You can now merge them with the base model.\\n")
+        print(f"→ You can now merge them with the base model.\n")
     args:
       - --model_name
-      - {inputValue: model_name}
+      - inputValue: model_name
       - --processed_dataset
-      - {inputPath: processed_dataset}
+      - inputPath: processed_dataset
       - --schema_json
-      - {inputPath: schema_json}
+      - inputPath: schema_json
       - --hf_token
-      - {inputValue: hf_token}
+      - inputValue: hf_token
       - --epochs
-      - {inputValue: epochs}
+      - inputValue: epochs
       - --batch_size
-      - {inputValue: batch_size}
+      - inputValue: batch_size
       - --lr
-      - {inputValue: lr}
+      - inputValue: lr
       - --grad_accum
-      - {inputValue: grad_accum}
+      - inputValue: grad_accum
       - --precision
-      - {inputValue: precision}
+      - inputValue: precision
       - --bits
-      - {inputValue: bits}
+      - inputValue: bits
       - --lora_r
-      - {inputValue: lora_r}
+      - inputValue: lora_r
       - --lora_alpha
-      - {inputValue: lora_alpha}
+      - inputValue: lora_alpha
       - --lora_dropout
-      - {inputValue: lora_dropout}
+      - inputValue: lora_dropout
       - --target_modules
-      - {inputValue: target_modules}
+      - inputValue: target_modules
       - --lora_out
-      - {outputPath: lora_out}
+      - outputPath: lora_out
