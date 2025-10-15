@@ -337,7 +337,7 @@ implementation:
       - name: PROCESSED_DATASET
         value: {inputPath: processed_dataset}
       - name: SCHEMA_JSON
-        value: {inputPath: schema_json}
+        value: {inputValue: schema_json}
       - name: EPOCHS
         value: {inputValue: epochs}
       - name: BATCH_SIZE
@@ -360,3 +360,4 @@ implementation:
         value: {inputValue: target_modules}
       - name: HF_TOKEN
         value: {inputValue: hf_token}
+
