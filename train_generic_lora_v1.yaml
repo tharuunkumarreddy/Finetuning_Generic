@@ -1,23 +1,20 @@
 name: Generic LoRA Fine-tuning
-description: >
-  Fine-tunes any LLM using PEFT LoRA adapters. Supports Hugging Face models with
-  automatic target module detection. Produces LoRA adapters ready for merging or inference.
-
+description: Fine-tunes any LLM using PEFT LoRA adapters.
 inputs:
-  - {name: model_name, type: String, description: 'Hugging Face model ID or path (e.g., meta-llama/Llama-2-7b-hf)'}
-  - {name: processed_dataset, type: Dataset, description: 'Prepared dataset from Generic Dataset Preparation component'}
-  - {name: schema_json, type: Data, description: 'Schema metadata JSON from Generic Dataset Preparation component'}
-  - {name: epochs, type: Integer, description: 'Number of training epochs', default: '1'}
-  - {name: batch_size, type: Integer, description: 'Per-device training batch size', default: '2'}
-  - {name: learning_rate, type: Float, description: 'Learning rate for optimizer', default: '0.0002'}
-  - {name: grad_accum_steps, type: Integer, description: 'Gradient accumulation steps', default: '4'}
-  - {name: precision, type: String, description: 'Training precision: fp32, fp16, or bf16', default: 'fp32'}
-  - {name: quantization_bits, type: Integer, description: 'Quantization bits (0=full, 4=4bit, 8=8bit)', default: '0'}
-  - {name: lora_r, type: Integer, description: 'LoRA rank parameter', default: '8'}
-  - {name: lora_alpha, type: Integer, description: 'LoRA alpha parameter', default: '16'}
-  - {name: lora_dropout, type: Float, description: 'LoRA dropout rate', default: '0.05'}
-  - {name: target_modules, type: String, description: 'Comma-separated LoRA target modules (auto-detect if empty)', default: ''}
-  - {name: hf_token, type: String, description: 'Hugging Face access token for gated models', default: ''}
+  - {name: model_name, type: String, description: '\''Hugging Face model ID or path'\''}
+  - {name: processed_dataset, type: Dataset, description: '\''Prepared dataset from Generic Dataset Preparation component'\''}
+  - {name: schema_json, type: Dataset, description: '\''Schema metadata JSON from Generic Dataset Preparation component'\''}
+  - {name: epochs, type: Integer, description: '\''Number of training epochs'\''}
+  - {name: batch_size, type: Integer, description: '\''Per-device training batch size'\''}
+  - {name: learning_rate, type: Float, description: '\''Learning rate for optimizer'\''}
+  - {name: grad_accum_steps, type: Integer, description: '\''Gradient accumulation steps'\''}
+  - {name: precision, type: String, description: '\''Training precision: fp32, fp16, or bf16'\''}
+  - {name: quantization_bits, type: Integer, description: '\''Quantization bits '\''}
+  - {name: lora_r, type: Integer, description: '\''LoRA rank parameter'\''}
+  - {name: lora_alpha, type: Integer, description: '\''LoRA alpha parameter'\''}
+  - {name: lora_dropout, type: Float, description: '\''LoRA dropout rate'\''}
+  - {name: target_modules, type: String, description: '\''Comma-separated LoRA target modules '\''}
+  - {name: hf_token, type: String, description: '\''Hugging Face access token for gated models'\''}
 
 outputs:
   - {name: lora_adapters, type: Model}
@@ -35,7 +32,7 @@ implementation:
         echo "Dependencies installed. Starting training script..."
         
         # Write Python script to temporary file
-        cat > /tmp/train_lora.py << 'EOF'
+        cat > /tmp/train_lora.py << '\''EOF'\''
         import os
         import sys
         import json
@@ -56,7 +53,7 @@ implementation:
         import logging
 
         logging.basicConfig(level=logging.INFO)
-        logger = logging.getLogger('lora_training')
+        logger = logging.getLogger('\''lora_training'\'')
 
         def ensure_directory_exists(file_path):
             directory = os.path.dirname(file_path)
@@ -69,7 +66,7 @@ implementation:
             token_str = str(token_arg).strip()
             if os.path.exists(token_str):
                 try:
-                    with open(token_str, 'r') as f:
+                    with open(token_str, '\''r'\'') as f:
                         content = f.read().strip()
                         return content if content else None
                 except Exception as e:
@@ -125,8 +122,9 @@ implementation:
         ensure_directory_exists(args.lora_adapters)
         output_dir = args.lora_adapters
         
-        logger.info(f"Parsing schema from input")
-        schema = json.loads(args.schema_json)
+        logger.info(f"Loading schema from {args.schema_json}")
+        with open(args.schema_json, '\''r'\'') as f:
+            schema = json.load(f)
         logger.info(f"Schema loaded: {json.dumps(schema, indent=2)}")        
 
         logger.info(f"Loading dataset from {args.processed_dataset}")
@@ -296,14 +294,12 @@ implementation:
             json.dump(run_config, f, indent=2)
 
         logger.info("=" * 60)
-        logger.info("✅ Fine-tuning complete!")
-        logger.info("→ LoRA adapters saved to: " + adapter_dir)
-        logger.info("→ Tokenizer saved to: " + output_dir)
-        logger.info("→ Configuration saved to: " + os.path.join(output_dir, "run_config.json"))
-        logger.info("=" * 60)
+        logger.info("Fine-tuning complete!")
+        logger.info("LoRA adapters saved to: " + adapter_dir)
+        logger.info("Tokenizer saved to: " + output_dir)
+        logger.info("Configuration saved to: " + os.path.join(output_dir, "run_config.json"))
         EOF
         
-        # Execute the Python script with arguments from environment
         exec python3 /tmp/train_lora.py \
           --model_name "${MODEL_NAME}" \
           --processed_dataset "${PROCESSED_DATASET}" \
@@ -322,52 +318,3 @@ implementation:
           --lora_adapters "$1"
     args:
       - {outputPath: lora_adapters}
-    env:
-      - name: MODEL_NAME
-        value:
-          inputValue: model_name
-      - name: PROCESSED_DATASET
-        value:
-          inputPath: processed_dataset
-      - name: SCHEMA_JSON
-        value:
-          inputValue: schema_json
-      - name: EPOCHS
-        value:
-          inputValue: epochs
-      - name: BATCH_SIZE
-        value:
-          inputValue: batch_size
-      - name: LEARNING_RATE
-        value:
-          inputValue: learning_rate
-      - name: GRAD_ACCUM_STEPS
-        value:
-          inputValue: grad_accum_steps
-      - name: PRECISION
-        value:
-          inputValue: precision
-      - name: QUANTIZATION_BITS
-        value:
-          inputValue: quantization_bits
-      - name: LORA_R
-        value:
-          inputValue: lora_r
-      - name: LORA_ALPHA
-        value:
-          inputValue: lora_alpha
-      - name: LORA_DROPOUT
-        value:
-          inputValue: lora_dropout
-      - name: TARGET_MODULES
-        value:
-          inputValue: target_modules
-      - name: HF_TOKEN
-        value:
-          inputValue: hf_token
-
-
-
-
-
-
