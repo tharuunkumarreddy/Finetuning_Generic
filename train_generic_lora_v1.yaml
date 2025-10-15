@@ -5,17 +5,17 @@ inputs:
   - {name: model_name, type: String, description: 'Hugging Face model ID or path (e.g., meta-llama/Llama-2-7b-hf)'}
   - {name: processed_dataset, type: Dataset, description: 'Prepared dataset from Generic Dataset Preparation component'}
   - {name: schema_json, type: Data, description: 'Schema metadata JSON from Generic Dataset Preparation component'}
-  - {name: epochs, type: Integer, description: 'Number of training epochs'}
-  - {name: batch_size, type: Integer, description: 'Per-device training batch size'}
-  - {name: learning_rate, type: Float, description: 'Learning rate for optimizer'}
-  - {name: grad_accum_steps, type: Integer, description: 'Gradient accumulation steps'}
-  - {name: precision, type: String, description: 'Training precision: fp32, fp16, or bf16'}
-  - {name: quantization_bits, type: Integer, description: 'Quantization bits (0=full, 4=4bit, 8=8bit)'}
-  - {name: lora_r, type: Integer, description: 'LoRA rank parameter'}
-  - {name: lora_alpha, type: Integer, description: 'LoRA alpha parameter'}
-  - {name: lora_dropout, type: Float, description: 'LoRA dropout rate'}
-  - {name: target_modules, type: String, description: 'Comma-separated LoRA target modules (auto-detect if empty)'}
-  - {name: hf_token, type: String, description: 'Hugging Face access token for gated models'}
+  - {name: epochs, type: Integer, description: 'Number of training epochs', default: '1'}
+  - {name: batch_size, type: Integer, description: 'Per-device training batch size', default: '2'}
+  - {name: learning_rate, type: Float, description: 'Learning rate for optimizer', default: '0.0002'}
+  - {name: grad_accum_steps, type: Integer, description: 'Gradient accumulation steps', default: '4'}
+  - {name: precision, type: String, description: 'Training precision: fp32, fp16, or bf16', default: 'fp32'}
+  - {name: quantization_bits, type: Integer, description: 'Quantization bits (0=full, 4=4bit, 8=8bit)', default: '0'}
+  - {name: lora_r, type: Integer, description: 'LoRA rank parameter', default: '8'}
+  - {name: lora_alpha, type: Integer, description: 'LoRA alpha parameter', default: '16'}
+  - {name: lora_dropout, type: Float, description: 'LoRA dropout rate', default: '0.05'}
+  - {name: target_modules, type: String, description: 'Comma-separated LoRA target modules (auto-detect if empty)', default: ''}
+  - {name: hf_token, type: String, description: 'Hugging Face access token for gated models', default: ''}
 
 outputs:
   - {name: lora_adapters, type: Model}
@@ -86,7 +86,7 @@ implementation:
             return tmpl is not None and len(str(tmpl)) > 0
         
         def guess_lora_targets(model):
-            """Auto-detect LoRA target modules based on model architecture."""
+            # Auto-detect LoRA target modules based on model architecture
             names = [n for n, _ in model.named_modules()]
             logger.info(f"Analyzing model architecture for LoRA targets...")
             
