@@ -8,6 +8,7 @@ inputs:
   - {name: model_name, type: String, description: 'Base model name or path from Hugging Face'}
   - {name: processed_dataset, type: Dataset, description: 'Path to prepared dataset from Generic Dataset Preparation'}
   - {name: schema_json, type: Data, description: 'Schema metadata JSON from dataset preparation'}
+  - {name: hf_token, type: String, default: '', description: 'Optional Hugging Face access token for private models'}
   - {name: epochs, type: Integer, default: 1, description: 'Number of fine-tuning epochs'}
   - {name: batch_size, type: Integer, default: 2, description: 'Batch size per device'}
   - {name: lr, type: Float, default: 0.0002, description: 'Learning rate'}
@@ -37,7 +38,6 @@ implementation:
         import os
         import json
         import math
-        import torch
         import argparse
         from datasets import load_from_disk
         from transformers import (
@@ -54,6 +54,7 @@ implementation:
         parser.add_argument("--model_name", required=True)
         parser.add_argument("--processed_dataset", required=True)
         parser.add_argument("--schema_json", required=True)
+        parser.add_argument("--hf_token", default=None)
         parser.add_argument("--epochs", type=int, default=1)
         parser.add_argument("--batch_size", type=int, default=2)
         parser.add_argument("--lr", type=float, default=2e-4)
@@ -78,14 +79,16 @@ implementation:
 
         # ------------------ Model & Tokenizer ------------------
         print(f"[INFO] Loading model/tokenizer from Hugging Face: {args.model_name}")
-        tokenizer = AutoTokenizer.from_pretrained(args.model_name, use_fast=True, trust_remote_code=True)
+        hf_auth = args.hf_token.strip() if args.hf_token and args.hf_token.strip() else None
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name, use_fast=True, trust_remote_code=True, token=hf_auth)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
         model = AutoModelForCausalLM.from_pretrained(
             args.model_name,
             use_safetensors=True,
-            trust_remote_code=True
+            trust_remote_code=True,
+            token=hf_auth
         )
 
         if args.bits in (4, 8):
@@ -162,7 +165,6 @@ implementation:
         total_steps = max(1, math.ceil(len(dsd["train"]) / (args.batch_size * args.grad_accum)))
 
         # ------------------ Training ------------------
-        from transformers import TrainingArguments, Trainer
         training_args = TrainingArguments(
             output_dir=args.lora_out,
             per_device_train_batch_size=args.batch_size,
@@ -206,6 +208,8 @@ implementation:
       - {inputPath: processed_dataset}
       - --schema_json
       - {inputPath: schema_json}
+      - --hf_token
+      - {inputValue: hf_token}
       - --epochs
       - {inputValue: epochs}
       - --batch_size
