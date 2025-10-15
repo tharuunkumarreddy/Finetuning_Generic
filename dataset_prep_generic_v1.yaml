@@ -14,7 +14,7 @@ inputs:
 
 outputs:
   - {name: processed_dataset, type: Dataset}
-  - {name: schema_json, type: String}   
+  - {name: schema_json, type: Data}   
 
 implementation:
   container:
@@ -270,5 +270,6 @@ implementation:
       - {outputPath: processed_dataset}
       - --schema_json
       - {outputValue: schema_json}
+
 
 
