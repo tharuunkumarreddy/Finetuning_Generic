@@ -218,11 +218,11 @@ implementation:
                         logger.warning(f"Chat template failed, using fallback: {e}")
                         q = ex["messages"][0]["content"] if len(ex["messages"]) > 0 else ""
                         a = ex["messages"][1]["content"] if len(ex["messages"]) > 1 else ""
-                        text = f"User: {q}\nAssistant: {a}"
+                        text = "User: " + q + "\nAssistant: " + a
                 else:
                     q = ex["messages"][0]["content"] if len(ex["messages"]) > 0 else ""
                     a = ex["messages"][1]["content"] if len(ex["messages"]) > 1 else ""
-                    text = f"User: {q}\nAssistant: {a}"
+                    text = "User: " + q + "\nAssistant: " + a
                 
                 if not use_chat:
                     out = tokenizer(text, truncation=True, max_length=2048)
