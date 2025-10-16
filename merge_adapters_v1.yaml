@@ -20,7 +20,7 @@ implementation:
     command:
       - sh
       - -c
-      - (pip install --no-cache-dir peft transformers torch fsspec s3fs > /dev/null 2>&1) && "$0" "$@"
+      - (pip install --no-cache-dir peft s3fs > /dev/null 2>&1) && "$0" "$@"
       - python3
       - -u
       - -c
@@ -50,7 +50,21 @@ implementation:
             logger.info("Starting LoRA Adapter Merge Process")
             logger.info("=" * 60)
             logger.info(f"Base model: {base_model}")
-            logger.info(f"LoRA adapter directory: {adapter_dir}")
+            logger.info(f"Input adapter directory: {adapter_dir}")
+            
+            # Fix: The actual adapter weights are in the 'adapter' subdirectory
+            actual_adapter_path = os.path.join(adapter_dir, "adapter")
+            
+            # Verify the adapter directory exists
+            if not os.path.exists(actual_adapter_path):
+                logger.error(f"Adapter directory not found at: {actual_adapter_path}")
+                logger.info(f"Contents of {adapter_dir}:")
+                if os.path.exists(adapter_dir):
+                    for item in os.listdir(adapter_dir):
+                        logger.info(f"  - {item}")
+                raise FileNotFoundError(f"Adapter directory not found at: {actual_adapter_path}")
+            
+            logger.info(f"Using adapter from: {actual_adapter_path}")
             logger.info(f"Output directory: {output_dir}")
             logger.info(f"Precision: {precision}")
             logger.info(f"Quantization bits: {quantization_bits}")
@@ -86,8 +100,9 @@ implementation:
             
             logger.info(f"Base model loaded successfully: {type(base_model_obj).__name__}")
             
-            logger.info(f"Loading LoRA adapter from: {adapter_dir}")
-            peft_model = PeftModel.from_pretrained(base_model_obj, adapter_dir)
+            # Use the actual adapter path (inside the 'adapter' subdirectory)
+            logger.info(f"Loading LoRA adapter from: {actual_adapter_path}")
+            peft_model = PeftModel.from_pretrained(base_model_obj, actual_adapter_path)
             logger.info("LoRA adapter loaded successfully")
             
             logger.info("Merging LoRA adapter weights into base model...")
