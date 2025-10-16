@@ -115,6 +115,14 @@ implementation:
             hf_token = get_token_value(hf_token_val)
             logger.info(f"HF Token present: {bool(hf_token)}")
             
+            from huggingface_hub import login
+            if hf_token:
+                try:
+                    login(token=hf_token)
+                    logger.info("Logged in to Hugging Face Hub")
+                except Exception as e:
+                    logger.error(f"Failed to login to HF: {e}")
+            
             ensure_directory_exists(lora_adapters_path)
             output_dir = lora_adapters_path
             
@@ -137,7 +145,7 @@ implementation:
                 tokenizer.pad_token = tokenizer.eos_token
                 logger.info("Set pad_token to eos_token")
             
-            model_kwargs = {"trust_remote_code": True, "torch_dtype": torch.float32}
+            model_kwargs = {"trust_remote_code": True, "torch_dtype": torch.float32, "device_map": "auto"}
             if hf_token:
                 model_kwargs["token"] = hf_token
             
@@ -148,6 +156,7 @@ implementation:
             
             try:
                 model_kwargs["use_safetensors"] = True
+                logger.info(f"Attempting to load model with kwargs: {list(model_kwargs.keys())}")
                 model = AutoModelForCausalLM.from_pretrained(model_name_path, **model_kwargs)
             except Exception as e:
                 logger.warning(f"Failed to load with safetensors, trying without: {e}")
@@ -160,10 +169,16 @@ implementation:
                 logger.info(f"Preparing model for {quantization_bits_val}-bit training")
                 model = prepare_model_for_kbit_training(model)
             
-            if target_modules_val.strip():
-                target_modules = [t.strip() for t in target_modules_val.split(",") if t.strip()]
-                logger.info(f"Using user-specified LoRA targets: {target_modules}")
+            cleaned_target_modules = target_modules_val.strip().strip('"').strip("'")
+            if cleaned_target_modules and cleaned_target_modules != "None":
+                target_modules = [t.strip() for t in cleaned_target_modules.split(",") if t.strip()]
+                if target_modules:
+                    logger.info(f"Using user-specified LoRA targets: {target_modules}")
+                else:
+                    logger.info("No valid target modules specified, auto-detecting...")
+                    target_modules = guess_lora_targets(model)
             else:
+                logger.info("Target modules empty or None, auto-detecting...")
                 target_modules = guess_lora_targets(model)
             
             lora_cfg = LoraConfig(
