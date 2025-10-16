@@ -1,5 +1,5 @@
 name: Dataset Directory Merger
-description: Merges the processed dataset and schema JSON into a single directory structure for CDN upload
+description: Merges the processed dataset and schema JSON into a single directory structure for CDN upload. Validates output structure for compatibility with Dataset Archive CDN Uploader.
 
 inputs:
   - name: processed_dataset
@@ -12,7 +12,7 @@ inputs:
 outputs:
   - name: merged_directory
     type: Data
-    description: 'Combined directory containing dataset and schema.json'
+    description: 'Combined directory containing dataset and schema.json, ready for CDN upload'
 
 implementation:
   container:
@@ -26,6 +26,7 @@ implementation:
         import os
         import shutil
         import json
+        import sys
 
         parser = argparse.ArgumentParser(description="Merge dataset and schema into single directory")
         parser.add_argument('--processed_dataset', type=str, required=True)
@@ -33,42 +34,119 @@ implementation:
         parser.add_argument('--merged_directory', type=str, required=True)
         args = parser.parse_args()
 
+        print("="*60)
+        print("DATASET DIRECTORY MERGER")
+        print("="*60)
+
         # Create output directory
         os.makedirs(args.merged_directory, exist_ok=True)
+        print(f"Created output directory: {args.merged_directory}")
+
+        # Validate inputs exist
+        print("\n[1/5] Validating inputs...")
+        if not os.path.exists(args.processed_dataset):
+            raise FileNotFoundError(f"processed_dataset not found: {args.processed_dataset}")
+        if not os.path.exists(args.schema_json):
+            raise FileNotFoundError(f"schema_json not found: {args.schema_json}")
+        print("✓ Input paths validated")
 
         # Copy entire dataset directory structure
-        print(f"Copying dataset from {args.processed_dataset}")
+        print("\n[2/5] Copying dataset directory...")
+        print(f"Source: {args.processed_dataset}")
+        
         if os.path.isdir(args.processed_dataset):
+            items_copied = 0
             for item in os.listdir(args.processed_dataset):
                 src = os.path.join(args.processed_dataset, item)
                 dst = os.path.join(args.merged_directory, item)
+                
                 if os.path.isdir(src):
                     shutil.copytree(src, dst)
+                    print(f"  ✓ Copied directory: {item}/")
                 else:
                     shutil.copy2(src, dst)
+                    print(f"  ✓ Copied file: {item}")
+                items_copied += 1
+            
+            print(f"✓ Copied {items_copied} items from dataset")
         else:
             raise ValueError(f"processed_dataset is not a directory: {args.processed_dataset}")
 
         # Copy schema.json to root of merged directory
-        print(f"Copying schema from {args.schema_json}")
+        print("\n[3/5] Copying schema.json...")
         if os.path.isfile(args.schema_json):
-            shutil.copy2(args.schema_json, os.path.join(args.merged_directory, 'schema.json'))
+            schema_dest = os.path.join(args.merged_directory, 'schema.json')
+            shutil.copy2(args.schema_json, schema_dest)
+            print(f"✓ Schema copied to: schema.json")
+            
+            # Parse and display schema info
+            try:
+                with open(schema_dest, 'r') as f:
+                    schema_data = json.load(f)
+                print(f"  - Source: {schema_data.get('dataset_source', 'unknown')}")
+                print(f"  - Train samples: {schema_data.get('num_train', 'unknown')}")
+                print(f"  - Validation samples: {schema_data.get('num_val', 'unknown')}")
+            except Exception as e:
+                print(f"  (Could not parse schema: {e})")
         else:
             raise ValueError(f"schema_json is not a file: {args.schema_json}")
 
-        # Verify final structure
+        # Verify final structure matches CDN Uploader requirements
+        print("\n[4/5] Validating merged directory structure...")
         contents = os.listdir(args.merged_directory)
-        print(f"Merged directory contents: {contents}")
+        print(f"Contents: {contents}")
         
-        # Verify schema.json exists
-        if 'schema.json' not in contents:
-            raise ValueError("schema.json missing from merged directory")
+        # Required by Dataset Archive CDN Uploader
+        required_items = ['schema.json']
+        optional_splits = ['train', 'validation', 'test']
         
-        # Verify at least one split exists
-        if not any(split in contents for split in ['train', 'validation', 'test']):
-            raise ValueError("No dataset splits found in merged directory")
+        # Check required items
+        missing_required = [item for item in required_items if item not in contents]
+        if missing_required:
+            raise ValueError(f"Missing required items: {missing_required}")
+        print("✓ Required files present: schema.json")
+        
+        # Check at least one split exists
+        found_splits = [split for split in optional_splits if split in contents]
+        if not found_splits:
+            raise ValueError(f"No dataset splits found. Expected at least one of: {optional_splits}")
+        print(f"✓ Dataset splits found: {found_splits}")
+        
+        # Verify splits are directories with content
+        for split in found_splits:
+            split_path = os.path.join(args.merged_directory, split)
+            if os.path.isdir(split_path):
+                split_contents = os.listdir(split_path)
+                if not split_contents:
+                    print(f"  ⚠ Warning: {split}/ is empty")
+                else:
+                    print(f"  ✓ {split}/ contains {len(split_contents)} items")
+            else:
+                raise ValueError(f"{split} exists but is not a directory")
 
-        print(f"Successfully merged dataset and schema into: {args.merged_directory}")
+        # Calculate total size
+        print("\n[5/5] Calculating directory statistics...")
+        total_size = 0
+        file_count = 0
+        for dirpath, dirnames, filenames in os.walk(args.merged_directory):
+            for filename in filenames:
+                filepath = os.path.join(dirpath, filename)
+                if os.path.exists(filepath):
+                    total_size += os.path.getsize(filepath)
+                    file_count += 1
+        
+        print(f"✓ Total files: {file_count}")
+        print(f"✓ Total size: {total_size:,} bytes ({total_size/1024/1024:.2f} MB)")
+
+        print("\n" + "="*60)
+        print("SUCCESS! Merged directory ready for CDN upload")
+        print(f"Output: {args.merged_directory}")
+        print("="*60)
+        print("\nStructure validated against Dataset Archive CDN Uploader requirements:")
+        print("  ✓ schema.json present")
+        print(f"  ✓ Dataset splits: {', '.join(found_splits)}")
+        print("  ✓ All files accessible")
+        print("\n→ This directory can now be passed to Dataset Archive CDN Uploader")
 
     args:
       - --processed_dataset
