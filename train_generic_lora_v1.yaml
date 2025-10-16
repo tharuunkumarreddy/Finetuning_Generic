@@ -55,7 +55,7 @@ implementation:
         import logging
 
         logging.basicConfig(level=logging.INFO)
-        logger = logging.getLogger('lora_training')
+        logger = logging.getLogger("lora_training")
 
         def ensure_directory_exists(file_path):
             directory = os.path.dirname(file_path)
@@ -68,7 +68,7 @@ implementation:
             token_str = str(token_arg).strip()
             if os.path.exists(token_str):
                 try:
-                    with open(token_str, 'r') as f:
+                    with open(token_str, "r") as f:
                         content = f.read().strip()
                         return content if content else None
                 except Exception as e:
@@ -125,7 +125,7 @@ implementation:
         output_dir = args.lora_adapters
 
         logger.info(f"Loading schema from {args.schema_json}")
-        with open(args.schema_json, 'r') as f:
+        with open(args.schema_json, "r") as f:
             schema = json.load(f)
         logger.info(f"Schema loaded: {json.dumps(schema, indent=2)}")
 
@@ -208,12 +208,12 @@ implementation:
                         msgs = ex.get("messages", [])
                         q = msgs[0].get("content", "") if len(msgs) > 0 else ""
                         a = msgs[1].get("content", "") if len(msgs) > 1 else ""
-                        text = "User: " + q + "\nAssistant: " + a
+                        text = "User: " + q + chr(10) + "Assistant: " + a
                 else:
                     msgs = ex.get("messages", [])
                     q = msgs[0].get("content", "") if len(msgs) > 0 else ""
                     a = msgs[1].get("content", "") if len(msgs) > 1 else ""
-                    text = "User: " + q + "\nAssistant: " + a
+                    text = "User: " + q + chr(10) + "Assistant: " + a
 
                 if not use_chat:
                     out = tokenizer(text, truncation=True, max_length=2048)
