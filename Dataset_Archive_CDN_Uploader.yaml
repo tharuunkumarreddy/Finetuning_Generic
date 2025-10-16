@@ -6,16 +6,16 @@ inputs:
     type: Data
     description: 'Output directory from Generic Dataset Preparation component containing train/, validation/, schema.json, etc.'
   - name: bearer_token
-    type: String
+    type: str
     description: 'Bearer token for CDN authentication'
   - name: compression_format
-    type: String
+    type: str
     description: 'Compression format: tar.gz, zip, or tar'
     default: 'tar.gz'
 
 outputs:
   - name: archive_cdn_url
-    type: String
+    type: str
     description: 'CDN URL where the compressed dataset archive is accessible'
   - name: archive_metadata
     type: Data
