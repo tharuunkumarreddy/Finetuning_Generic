@@ -20,7 +20,7 @@ implementation:
     command:
       - sh
       - -c
-      - (pip install --no-cache-dir peft s3fs > /dev/null 2>&1) && "$0" "$@"
+      - (pip install --no-cache-dir peft > /dev/null 2>&1) && "$0" "$@"
       - python3
       - -u
       - -c
@@ -144,3 +144,4 @@ implementation:
       - {inputValue: quantization_bits}
       - --output_dir
       - {outputPath: merged_model_dir}
+
