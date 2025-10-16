@@ -3,7 +3,7 @@ description: Merges fine-tuned LoRA adapters with a base model into a single dep
 
 inputs:
   - {name: base_model, type: String, description: 'Base model path or Hugging Face ID (e.g., sshleifer/tiny-gpt2)'}
-  - {name: adapter_dir, type: Data, description: 'Path to fine-tuned LoRA adapter directory from Generic LoRA Fine-tuning component'}
+  - {name: adapter_dir, type: Model, description: 'Path to fine-tuned LoRA adapter directory from Generic LoRA Fine-tuning component'}
   - {name: precision, type: String, description: 'Training precision: fp32, bf16, or fp16'}
   - {name: quantization_bits, type: Integer, description: 'Quantization bits (0, 4, or 8). 0 means no quantization'}
 
@@ -144,4 +144,5 @@ implementation:
       - {inputValue: quantization_bits}
       - --output_dir
       - {outputPath: merged_model_dir}
+
 
