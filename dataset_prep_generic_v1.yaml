@@ -144,9 +144,26 @@ implementation:
             except Exception as e:
                 logger.error(f'API failed: {str(e)}')
                 raise
+            
+            # Log raw response structure for debugging
+            logger.info(f"Raw API response type: {type(raw_data)}")
+            if isinstance(raw_data, list) and raw_data:
+                logger.info(f"First item keys: {list(raw_data[0].keys()) if isinstance(raw_data[0], dict) else 'Not a dict'}")
+            elif isinstance(raw_data, dict):
+                logger.info(f"Response keys: {list(raw_data.keys())}")
+            
+            # Unwrap if data is in a wrapper key like 'content', 'data', 'results', etc.
+            if isinstance(raw_data, dict):
+                for wrapper_key in ['content', 'data', 'results', 'items', 'records']:
+                    if wrapper_key in raw_data and isinstance(raw_data[wrapper_key], list):
+                        logger.info(f"Unwrapping data from '{wrapper_key}' key")
+                        raw_data = raw_data[wrapper_key]
+                        break
+            
+            # Check for flat schema first
             if isinstance(raw_data, list) and raw_data and all(isinstance(x, dict) for x in raw_data):
                 if input_field in raw_data[0]:
-                    logger.info("Flat PI API schema detected.")
+                    logger.info(f"Flat PI API schema detected. Found '{input_field}' field in data.")
                     records = []
                     for item in raw_data:
                         prompt = item.get(input_field, "")
@@ -155,53 +172,102 @@ implementation:
                             response = json.dumps(response, ensure_ascii=False)
                         if prompt or response:
                             records.append({"instruction": prompt, "output": response})
+                    logger.info(f"Extracted {len(records)} records from flat schema")
                     return DatasetDict({"train": Dataset.from_list(records)})
-            logger.info("Nested PI API schema detected")
-            CHILD_KEYS = ["subsections", "sections", "children", "items"]
-            TITLE_KEYS = ["title", "heading", "name"]
-            CONTENT_KEYS = ["content", "text", "body"]
+            
+            logger.info("Nested PI API schema detected - attempting recursive extraction")
+            
+            CHILD_KEYS = ["subsections", "sections", "children", "items", "data", "results", "individualResults"]
+            TITLE_KEYS = ["title", "heading", "name", input_field]
+            CONTENT_KEYS = ["content", "text", "body", output_field]
+            
             def iter_children(node):
+                """Get child nodes from various possible keys"""
+                if not isinstance(node, dict):
+                    return []
                 for k in CHILD_KEYS:
                     v = node.get(k)
                     if isinstance(v, list):
                         return v
+                # If no child list found, check all values
+                for v in node.values():
+                    if isinstance(v, list) and v and isinstance(v[0], dict):
+                        return v
                 return []
+            
             def get_first(node, keys):
+                """Get first non-empty value from specified keys"""
+                if not isinstance(node, dict):
+                    return ""
                 for k in keys:
                     val = node.get(k)
                     if val:
                         return str(val).strip()
                 return ""
-            def extract_recursive(node, path=""):
+            
+            def extract_recursive(node, path="", depth=0):
+                """Recursively extract title/content pairs"""
+                if depth > 20:  # Prevent infinite recursion
+                    return []
+                
                 results = []
-                title = get_first(node, TITLE_KEYS)
-                content = get_first(node, CONTENT_KEYS)
-                if title or content:
-                    results.append({"title": title, "content": content, "path": path})
-                for idx, child in enumerate(iter_children(node)):
-                    subpath = f"{path}/sub_{idx}" if path else f"sub_{idx}"
-                    results.extend(extract_recursive(child, subpath))
+                
+                if isinstance(node, dict):
+                    title = get_first(node, TITLE_KEYS)
+                    content = get_first(node, CONTENT_KEYS)
+                    
+                    if title or content:
+                        results.append({"title": title, "content": content, "path": path})
+                    
+                    # Recurse into children
+                    for idx, child in enumerate(iter_children(node)):
+                        subpath = f"{path}/sub_{idx}" if path else f"sub_{idx}"
+                        results.extend(extract_recursive(child, subpath, depth + 1))
+                
+                elif isinstance(node, list):
+                    for idx, item in enumerate(node):
+                        subpath = f"{path}/item_{idx}" if path else f"item_{idx}"
+                        results.extend(extract_recursive(item, subpath, depth + 1))
+                
                 return results
+            
             def extract_all(raw):
+                """Extract all records from nested structure"""
                 all_rows = []
                 items = raw if isinstance(raw, list) else [raw]
-                for resp in items:
-                    resp_obj = resp.get("response", {})
-                    for ir in resp_obj.get("individualResults", []):
-                        orig = ir.get("originalResult", {})
-                        for res in orig.get("results", []):
-                            doc = res.get("data", {}).get("structuredTextJsonData", {}).get("document", {})
-                            all_rows.extend(extract_recursive(doc))
+                
+                for idx, item in enumerate(items):
+                    logger.info(f"Processing item {idx}, type: {type(item)}")
+                    all_rows.extend(extract_recursive(item, f"root_{idx}"))
+                
                 return all_rows
+            
             flat_items = extract_all(raw_data)
+            logger.info(f"Extracted {len(flat_items)} flat items from nested structure")
+            
+            if flat_items:
+                logger.info(f"Sample extracted item keys: {list(flat_items[0].keys())}")
+                logger.info(f"Sample extracted item: {json.dumps(flat_items[0], indent=2)[:200]}")
+            
             records = []
             for item in flat_items:
-                prompt = item.get(input_field, "")
-                response = item.get(output_field, "")
+                # Try input_field first, then fall back to 'title'
+                prompt = item.get(input_field, "") or item.get("title", "")
+                # Try output_field first, then fall back to 'content'
+                response = item.get(output_field, "") or item.get("content", "")
+                
                 if prompt or response:
-                    records.append({"instruction": prompt, "output": response})
+                    records.append({"instruction": str(prompt).strip(), "output": str(response).strip()})
+            
             if not records:
-                raise ValueError("No records extracted from PI API response")
+                logger.error(f"No records extracted. Flat items count: {len(flat_items)}")
+                if flat_items:
+                    logger.error(f"Sample flat item: {json.dumps(flat_items[0], indent=2)}")
+                logger.error(f"Looking for input_field='{input_field}' and output_field='{output_field}'")
+                logger.error(f"Sample raw data (first 1000 chars): {json.dumps(raw_data if not isinstance(raw_data, list) or len(str(raw_data)) < 1000 else raw_data[:2], indent=2)[:1000]}")
+                raise ValueError(f"No records extracted from PI API response. Check that input_field='{input_field}' and output_field='{output_field}' match your API response structure.")
+            
+            logger.info(f"Successfully extracted {len(records)} records")
             return DatasetDict({"train": Dataset.from_list(records)})
         
         ensure_directory_exists(args.processed_dataset)
@@ -270,6 +336,7 @@ implementation:
       - {outputPath: processed_dataset}
       - --schema_json
       - {outputPath: schema_json}
+
 
 
 
