@@ -145,14 +145,12 @@ implementation:
                 logger.error(f'API failed: {str(e)}')
                 raise
             
-            # Log raw response structure for debugging
             logger.info(f"Raw API response type: {type(raw_data)}")
             if isinstance(raw_data, list) and raw_data:
                 logger.info(f"First item keys: {list(raw_data[0].keys()) if isinstance(raw_data[0], dict) else 'Not a dict'}")
             elif isinstance(raw_data, dict):
                 logger.info(f"Response keys: {list(raw_data.keys())}")
             
-            # Unwrap if data is in a wrapper key like 'content', 'data', 'results', etc.
             if isinstance(raw_data, dict):
                 for wrapper_key in ['content', 'data', 'results', 'items', 'records']:
                     if wrapper_key in raw_data and isinstance(raw_data[wrapper_key], list):
@@ -160,7 +158,6 @@ implementation:
                         raw_data = raw_data[wrapper_key]
                         break
             
-            # Check for flat schema first
             if isinstance(raw_data, list) and raw_data and all(isinstance(x, dict) for x in raw_data):
                 if input_field in raw_data[0]:
                     logger.info(f"Flat PI API schema detected. Found '{input_field}' field in data.")
@@ -182,21 +179,20 @@ implementation:
             CONTENT_KEYS = ["content", "text", "body", output_field]
             
             def iter_children(node):
-                """Get child nodes from various possible keys"""
+                # Get child nodes from various possible keys
                 if not isinstance(node, dict):
                     return []
                 for k in CHILD_KEYS:
                     v = node.get(k)
                     if isinstance(v, list):
                         return v
-                # If no child list found, check all values
                 for v in node.values():
                     if isinstance(v, list) and v and isinstance(v[0], dict):
                         return v
                 return []
             
             def get_first(node, keys):
-                """Get first non-empty value from specified keys"""
+                # Get first non-empty value from specified keys
                 if not isinstance(node, dict):
                     return ""
                 for k in keys:
@@ -206,8 +202,8 @@ implementation:
                 return ""
             
             def extract_recursive(node, path="", depth=0):
-                """Recursively extract title/content pairs"""
-                if depth > 20:  # Prevent infinite recursion
+                # Recursively extract title/content pairs
+                if depth > 20:
                     return []
                 
                 results = []
@@ -219,7 +215,6 @@ implementation:
                     if title or content:
                         results.append({"title": title, "content": content, "path": path})
                     
-                    # Recurse into children
                     for idx, child in enumerate(iter_children(node)):
                         subpath = f"{path}/sub_{idx}" if path else f"sub_{idx}"
                         results.extend(extract_recursive(child, subpath, depth + 1))
@@ -232,7 +227,7 @@ implementation:
                 return results
             
             def extract_all(raw):
-                """Extract all records from nested structure"""
+                # Extract all records from nested structure
                 all_rows = []
                 items = raw if isinstance(raw, list) else [raw]
                 
@@ -251,9 +246,7 @@ implementation:
             
             records = []
             for item in flat_items:
-                # Try input_field first, then fall back to 'title'
                 prompt = item.get(input_field, "") or item.get("title", "")
-                # Try output_field first, then fall back to 'content'
                 response = item.get(output_field, "") or item.get("content", "")
                 
                 if prompt or response:
@@ -336,9 +329,3 @@ implementation:
       - {outputPath: processed_dataset}
       - --schema_json
       - {outputPath: schema_json}
-
-
-
-
-
-
