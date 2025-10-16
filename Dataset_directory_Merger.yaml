@@ -1,0 +1,79 @@
+name: Dataset Directory Merger
+description: Merges the processed dataset and schema JSON into a single directory structure for CDN upload
+
+inputs:
+  - name: processed_dataset
+    type: Data
+    description: 'Processed dataset directory from Generic Dataset Preparation'
+  - name: schema_json
+    type: Data
+    description: 'Schema JSON file from Generic Dataset Preparation'
+
+outputs:
+  - name: merged_directory
+    type: Data
+    description: 'Combined directory containing dataset and schema.json'
+
+implementation:
+  container:
+    image: python:3.9-slim
+    command:
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import os
+        import shutil
+        import json
+
+        parser = argparse.ArgumentParser(description="Merge dataset and schema into single directory")
+        parser.add_argument('--processed_dataset', type=str, required=True)
+        parser.add_argument('--schema_json', type=str, required=True)
+        parser.add_argument('--merged_directory', type=str, required=True)
+        args = parser.parse_args()
+
+        # Create output directory
+        os.makedirs(args.merged_directory, exist_ok=True)
+
+        # Copy entire dataset directory structure
+        print(f"Copying dataset from {args.processed_dataset}")
+        if os.path.isdir(args.processed_dataset):
+            for item in os.listdir(args.processed_dataset):
+                src = os.path.join(args.processed_dataset, item)
+                dst = os.path.join(args.merged_directory, item)
+                if os.path.isdir(src):
+                    shutil.copytree(src, dst)
+                else:
+                    shutil.copy2(src, dst)
+        else:
+            raise ValueError(f"processed_dataset is not a directory: {args.processed_dataset}")
+
+        # Copy schema.json to root of merged directory
+        print(f"Copying schema from {args.schema_json}")
+        if os.path.isfile(args.schema_json):
+            shutil.copy2(args.schema_json, os.path.join(args.merged_directory, 'schema.json'))
+        else:
+            raise ValueError(f"schema_json is not a file: {args.schema_json}")
+
+        # Verify final structure
+        contents = os.listdir(args.merged_directory)
+        print(f"Merged directory contents: {contents}")
+        
+        # Verify schema.json exists
+        if 'schema.json' not in contents:
+            raise ValueError("schema.json missing from merged directory")
+        
+        # Verify at least one split exists
+        if not any(split in contents for split in ['train', 'validation', 'test']):
+            raise ValueError("No dataset splits found in merged directory")
+
+        print(f"Successfully merged dataset and schema into: {args.merged_directory}")
+
+    args:
+      - --processed_dataset
+      - {inputPath: processed_dataset}
+      - --schema_json
+      - {inputPath: schema_json}
+      - --merged_directory
+      - {outputPath: merged_directory}
