@@ -55,19 +55,16 @@ implementation:
         upload_url = 'https://igs.gov-cloud.ai/mobius-content-service/v1.0/content/upload?filePath=MPQE1&contentTags=lora_adapter'
 
         def verify_adapter_structure(adapter_dir):
-            """Verify the LoRA adapter directory has the expected structure."""
             if not os.path.isdir(adapter_dir):
                 raise NotADirectoryError('Adapter directory not found: ' + adapter_dir)
             
             found_items = os.listdir(adapter_dir)
             print('Found items in adapter directory: ' + str(found_items))
             
-            # Check for required adapter subdirectory
             has_adapter = 'adapter' in found_items and os.path.isdir(os.path.join(adapter_dir, 'adapter'))
             if not has_adapter:
                 raise ValueError('Missing required adapter/ subdirectory. Found: ' + str(found_items))
             
-            # Check adapter subdirectory contents
             adapter_path = os.path.join(adapter_dir, 'adapter')
             adapter_files = os.listdir(adapter_path)
             required_adapter_files = ['adapter_config.json', 'adapter_model.safetensors']
@@ -76,13 +73,9 @@ implementation:
             if missing_files:
                 print('WARNING: Missing expected adapter files: ' + str(missing_files))
             
-            # Check for merged_model directory (if exists, this is a merged output)
             has_merged = 'merged_model' in found_items and os.path.isdir(os.path.join(adapter_dir, 'merged_model'))
             
-            # Identify tokenizer files
             tokenizer_files = [f for f in found_items if 'tokenizer' in f.lower() or f in ['vocab.json', 'special_tokens_map.json']]
-            
-            # Identify checkpoint directories
             checkpoint_dirs = [f for f in found_items if f.startswith('checkpoint-') and os.path.isdir(os.path.join(adapter_dir, f))]
             
             print('Adapter structure verified:')
@@ -92,7 +85,6 @@ implementation:
             print('  - Checkpoint directories: ' + str(checkpoint_dirs if checkpoint_dirs else 'None'))
             print('  - merged_model/ directory: ' + ('YES' if has_merged else 'NO'))
             
-            # Load run_config.json if exists for metadata
             run_config = {}
             run_config_path = os.path.join(adapter_dir, 'run_config.json')
             if os.path.exists(run_config_path):
@@ -114,7 +106,6 @@ implementation:
             return structure_info
 
         def get_directory_size(path):
-            """Calculate total size of directory in bytes."""
             total = 0
             for dirpath, dirnames, filenames in os.walk(path):
                 for filename in filenames:
@@ -124,7 +115,6 @@ implementation:
             return total
 
         def compress_directory(adapter_dir, output_archive, compression_format):
-            """Compress the adapter directory into specified format."""
             adapter_name = os.path.basename(adapter_dir.rstrip('/'))
             print('Starting compression in ' + compression_format + ' format...')
             
@@ -152,7 +142,6 @@ implementation:
                 raise
 
         def upload_file_to_cdn(file_path, output_url_path):
-            """Upload compressed archive to CDN and return the URL."""
             if not os.path.exists(file_path):
                 raise FileNotFoundError('File not found: ' + file_path)
             
@@ -209,7 +198,6 @@ implementation:
                 raise
 
         def save_metadata(metadata_path, metadata_dict):
-            """Save metadata JSON file."""
             output_dir = os.path.dirname(metadata_path)
             if output_dir:
                 os.makedirs(output_dir, exist_ok=True)
@@ -230,7 +218,6 @@ implementation:
             size_mb = original_size / 1024 / 1024
             print('Original adapter size: ' + str(original_size) + ' bytes (' + '{:.2f}'.format(size_mb) + ' MB)')
             
-            # Create unique archive name with timestamp
             timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
             adapter_basename = os.path.basename(args.adapter_directory.rstrip('/'))
             archive_name = 'lora_adapter_' + timestamp + '.' + args.compression_format
@@ -275,7 +262,6 @@ implementation:
             
             save_metadata(args.archive_metadata, metadata)
             
-            # Cleanup temporary archive
             if os.path.exists(archive_path):
                 os.remove(archive_path)
                 print('Cleaned up temporary archive: ' + archive_path)
