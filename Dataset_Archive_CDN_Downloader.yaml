@@ -1,0 +1,223 @@
+name: Dataset Archive CDN Downloader
+description: Downloads compressed dataset archive from CDN URL, extracts it, and provides processed_dataset folder and schema.json file matching Generic Dataset Preparation output structure.
+
+inputs:
+  - name: archive_cdn_url
+    type: String
+    description: 'CDN URL where the compressed dataset archive is accessible (tar.gz, tar, or zip format)'
+
+outputs:
+  - name: processed_dataset
+    type: Data
+    description: 'Extracted dataset directory containing train/, validation/, and other dataset files'
+  - name: schema_json
+    type: Data
+    description: 'Extracted schema.json file containing dataset metadata'
+
+implementation:
+  container:
+    image: python:3.9-slim
+    command:
+      - sh
+      - -c
+      - |
+        apt-get update && apt-get install -y curl
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import os
+        import tarfile
+        import zipfile
+        import json
+        import shutil
+        import subprocess
+        from pathlib import Path
+
+        parser = argparse.ArgumentParser(description='Download and extract dataset archive from CDN.')
+        parser.add_argument('--archive_cdn_url', type=str, required=True)
+        parser.add_argument('--processed_dataset', type=str, required=True)
+        parser.add_argument('--schema_json', type=str, required=True)
+        args = parser.parse_args()
+
+        def ensure_directory_exists(file_path):
+            directory = os.path.dirname(file_path)
+            if directory and not os.path.exists(directory):
+                os.makedirs(directory, exist_ok=True)
+
+        def detect_archive_format(url):
+            url_lower = url.lower()
+            if url_lower.endswith('.tar.gz') or url_lower.endswith('.tgz'):
+                return 'tar.gz'
+            elif url_lower.endswith('.tar'):
+                return 'tar'
+            elif url_lower.endswith('.zip'):
+                return 'zip'
+            else:
+                raise ValueError(f'Unable to detect archive format from URL: {url}')
+
+        def download_file(url, output_path):
+            print(f'Downloading archive from CDN: {url}')
+            
+            curl_command = [
+                'curl',
+                '--location', url,
+                '--output', output_path,
+                '--fail',
+                '--show-error',
+                '--silent'
+            ]
+            
+            try:
+                subprocess.run(curl_command, check=True)
+                file_size = os.path.getsize(output_path)
+                size_mb = file_size / 1024 / 1024
+                print(f'Download successful! File size: {file_size} bytes ({size_mb:.2f} MB)')
+                return output_path
+            except subprocess.CalledProcessError as e:
+                print(f'Download failed: {e}')
+                raise
+
+        def extract_archive(archive_path, extract_to, archive_format):
+            print(f'Extracting {archive_format} archive...')
+            
+            try:
+                if archive_format in ['tar.gz', 'tar']:
+                    mode = 'r:gz' if archive_format == 'tar.gz' else 'r'
+                    with tarfile.open(archive_path, mode) as tar:
+                        tar.extractall(path=extract_to)
+                        members = tar.getmembers()
+                        print(f'Extracted {len(members)} files/folders')
+                        
+                elif archive_format == 'zip':
+                    with zipfile.ZipFile(archive_path, 'r') as zf:
+                        zf.extractall(path=extract_to)
+                        members = zf.namelist()
+                        print(f'Extracted {len(members)} files/folders')
+                
+                print(f'Extraction complete to: {extract_to}')
+                return extract_to
+            except Exception as e:
+                print(f'Extraction failed: {e}')
+                raise
+
+        def find_dataset_root(extract_dir):
+            contents = os.listdir(extract_dir)
+            print(f'Contents after extraction: {contents}')
+            
+            if len(contents) == 1 and os.path.isdir(os.path.join(extract_dir, contents[0])):
+                dataset_root = os.path.join(extract_dir, contents[0])
+                print(f'Found wrapped dataset directory: {contents[0]}')
+            else:
+                dataset_root = extract_dir
+                print('Dataset extracted to root level')
+            
+            return dataset_root
+
+        def verify_dataset_structure(dataset_root):
+            contents = os.listdir(dataset_root)
+            print(f'Dataset structure contents: {contents}')
+            
+            has_schema = 'schema.json' in contents
+            has_train = 'train' in contents
+            has_validation = 'validation' in contents
+            
+            if not has_schema:
+                print('WARNING: schema.json not found in dataset')
+            if not (has_train or has_validation):
+                print('WARNING: Neither train nor validation directories found')
+            
+            return dataset_root, has_schema
+
+        def copy_dataset_structure(source_dir, output_dataset_dir, output_schema_path):
+            ensure_directory_exists(output_dataset_dir)
+            ensure_directory_exists(output_schema_path)
+            
+            source_contents = os.listdir(source_dir)
+            schema_found = False
+            
+            for item in source_contents:
+                source_path = os.path.join(source_dir, item)
+                
+                if item == 'schema.json':
+                    shutil.copy2(source_path, output_schema_path)
+                    print(f'Copied schema.json to: {output_schema_path}')
+                    schema_found = True
+                else:
+                    dest_path = os.path.join(output_dataset_dir, item)
+                    if os.path.isdir(source_path):
+                        shutil.copytree(source_path, dest_path)
+                        print(f'Copied directory: {item}/')
+                    else:
+                        shutil.copy2(source_path, dest_path)
+                        print(f'Copied file: {item}')
+            
+            if not schema_found:
+                print('WARNING: schema.json not found, creating placeholder')
+                placeholder_schema = {
+                    "dataset_source": "cdn_archive",
+                    "note": "Schema file was not present in archive",
+                    "extracted_contents": source_contents
+                }
+                with open(output_schema_path, 'w') as f:
+                    json.dump(placeholder_schema, f, indent=2)
+            
+            return schema_found
+
+        try:
+            archive_format = detect_archive_format(args.archive_cdn_url)
+            print(f'Detected archive format: {archive_format}')
+            
+            temp_dir = '/tmp/dataset_download'
+            os.makedirs(temp_dir, exist_ok=True)
+            
+            archive_filename = f'dataset_archive.{archive_format}'
+            archive_path = os.path.join(temp_dir, archive_filename)
+            
+            download_file(args.archive_cdn_url, archive_path)
+            
+            extract_dir = os.path.join(temp_dir, 'extracted')
+            os.makedirs(extract_dir, exist_ok=True)
+            
+            extract_archive(archive_path, extract_dir, archive_format)
+            
+            dataset_root = find_dataset_root(extract_dir)
+            
+            dataset_root, has_schema = verify_dataset_structure(dataset_root)
+            
+            schema_found = copy_dataset_structure(
+                dataset_root,
+                args.processed_dataset,
+                args.schema_json
+            )
+            
+            output_contents = os.listdir(args.processed_dataset)
+            print('')
+            print('=' * 60)
+            print('SUCCESS!')
+            print(f'Dataset extracted to: {args.processed_dataset}')
+            print(f'Dataset contents: {output_contents}')
+            print(f'Schema file: {args.schema_json}')
+            print(f'Schema found: {schema_found}')
+            print('=' * 60)
+            
+            shutil.rmtree(temp_dir)
+            print('Cleaned up temporary files')
+            
+        except Exception as e:
+            print('')
+            print('EXTRACTION FAILED!')
+            print(f'Error: {str(e)}')
+            import traceback
+            traceback.print_exc()
+            raise
+
+    args:
+      - --archive_cdn_url
+      - {inputValue: archive_cdn_url}
+      - --processed_dataset
+      - {outputPath: processed_dataset}
+      - --schema_json
+      - {outputPath: schema_json}
