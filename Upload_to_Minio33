@@ -33,8 +33,7 @@ implementation:
             mv mc /usr/local/bin/
 
             # Set up MinIO alias with your local MinIO instance
-            mc alias set myminio http://minio-service.kubeflow.svc.cluster.local:9000 minio QL2YJ8G5PCE13KVW19JBLUSQDHRJZF
-
+            mc alias set myminio http://minio-service.kubeflow.svc.cluster.local:9000 minio K7712XV0U4HRXJOCL8JJFPBVUNFNZL
             # Check if the bucket exists, if not create it
             if ! mc ls myminio/"$1"; then
               mc mb myminio/"$1"
@@ -55,4 +54,5 @@ implementation:
         - inputPath: Data
         - inputValue: MinIO bucket name
         - inputValue: Application name
+
         - outputPath: MinIO path
