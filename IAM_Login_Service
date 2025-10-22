@@ -1,0 +1,99 @@
+name: IAM Login Service
+description: Authenticates a user and extracts accessToken, refreshToken, and related metadata from the IAM login response.
+inputs:
+  - {name: username, type: string}
+  - {name: password, type: string}
+  - {name: productid, type: string}
+  - {name: requesttype, type: string}
+  - {name: domine, type: string}
+outputs:
+  - {name: accesstoken, type: string}
+  - {name: expiresin, type: string}
+  - {name: refreshtoken, type: string}
+  - {name: tenantid, type: string}
+  - {name: platformid, type: string}
+implementation:
+  container:
+    image: python:3.8
+    command:
+      - sh
+      - -c
+      - |
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet requests || \
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet requests --user
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import requests
+        import json
+        import argparse
+        import os
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--username", type=str, required=True)
+        parser.add_argument("--password", type=str, required=True)
+        parser.add_argument("--productid", type=str, required=True)
+        parser.add_argument("--requesttype", type=str, required=True)
+        parser.add_argument("--domine", type=str, required=True)
+        parser.add_argument("--accesstoken", type=str, required=True)
+        parser.add_argument("--expiresin", type=str, required=True)
+        parser.add_argument("--refreshtoken", type=str, required=True)
+        parser.add_argument("--tenantid", type=str, required=True)
+        parser.add_argument("--platformid", type=str, required=True)
+        args = parser.parse_args()
+        
+        url = f"{args.domine}/mobius-iam-service/v1.0/login"
+        headers = {
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "userName": args.username,
+            "password": args.password,
+            "productId": args.productid,
+            "requestType": args.requesttype
+        }
+        
+        print(f"Sending POST to {url}")
+        response = requests.post(url, headers=headers, json=payload)
+        print("Status Code:", response.status_code)
+        
+        if response.status_code != 200:
+            print("Error:", response.text)
+            raise Exception(f"Login failed with status {response.status_code}")
+        
+        result = response.json()
+        
+        def write_output(path, value):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as f:
+                f.write(str(value))
+        
+        write_output(args.accesstoken, result.get("accessToken", ""))
+        write_output(args.expiresin, result.get("expiresIn", ""))
+        write_output(args.refreshtoken, result.get("refreshToken", ""))
+        write_output(args.tenantid, result.get("tenantId", ""))
+        write_output(args.platformid, result.get("platformId", ""))
+        
+        print("Login successful!")
+    args:
+      - --username
+      - {inputValue: username}
+      - --password
+      - {inputValue: password}
+      - --productid
+      - {inputValue: productid}
+      - --requesttype
+      - {inputValue: requesttype}
+      - --domine
+      - {inputValue: domine}
+      - --accesstoken
+      - {outputPath: accesstoken}
+      - --expiresin
+      - {outputPath: expiresin}
+      - --refreshtoken
+      - {outputPath: refreshtoken}
+      - --tenantid
+      - {outputPath: tenantid}
+      - --platformid
+      - {outputPath: platformid}
