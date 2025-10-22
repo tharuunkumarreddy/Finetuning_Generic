@@ -1,0 +1,385 @@
+name: Track LoRA Pipeline Essentials
+description: Tracks essential metadata from LoRA fine-tuning pipeline - dataset, model, key hyperparameters, and results. Lightweight tracking focused on reproducibility.
+
+inputs:
+  # Metadata files from previous components
+  - {name: dataset_schema_json, type: Data, description: 'Schema JSON from Generic Dataset Preparation'}
+  - {name: lora_adapters_dir, type: Model, description: 'LoRA adapters directory containing run_config.json'}
+  - {name: merged_model_dir, type: Model, description: 'Merged model directory (optional for tracking)'}
+  
+  # Execution tracking
+  - {name: execution_id, type: String, description: 'Unique execution ID for this pipeline run'}
+  - {name: experiment_name, type: String, description: 'Human-readable experiment name', default: 'LoRA Experiment'}
+  
+  # Schema update parameters (same as Update Schema Row component)
+  - {name: schema_id, type: String, description: 'The ID of the schema to update'}
+  - {name: tenant_id, type: String, description: 'The ID of the tenant'}
+  - {name: project_id, type: String, description: 'The ID of the project'}
+  - {name: model_id, type: String, description: 'The ID of the model', default: '-1'}
+  - {name: architecture_type, type: String, description: 'The architecture type', default: 'LoRA'}
+  - {name: bearer_auth_token, type: String, description: 'Bearer token for authentication'}
+  - {name: domain, type: String, description: 'The domain for the API endpoint'}
+
+outputs:
+  - {name: tracking_status, type: String, description: 'Status message from schema update'}
+
+implementation:
+  container:
+    image: python:3.9-slim
+    command:
+      - sh
+      - -c
+      - |
+        pip install requests
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import json
+        import argparse
+        import os
+        import requests
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
+        from datetime import datetime
+
+        parser = argparse.ArgumentParser()
+        # Metadata inputs
+        parser.add_argument('--dataset_schema_json', type=str, required=True)
+        parser.add_argument('--lora_adapters_dir', type=str, required=True)
+        parser.add_argument('--merged_model_dir', type=str, required=False, default='')
+        
+        # Execution tracking
+        parser.add_argument('--execution_id', type=str, required=True)
+        parser.add_argument('--experiment_name', type=str, default='LoRA Experiment')
+        
+        # Schema parameters
+        parser.add_argument('--schema_id', type=str, required=True)
+        parser.add_argument('--tenant_id', type=str, required=True)
+        parser.add_argument('--project_id', type=str, required=True)
+        parser.add_argument('--model_id', type=str, default='-1')
+        parser.add_argument('--architecture_type', type=str, default='LoRA')
+        parser.add_argument('--bearer_auth_token', type=str, required=True)
+        parser.add_argument('--domain', type=str, required=True)
+        
+        # Output
+        parser.add_argument('--tracking_status', type=str, required=True)
+        
+        args = parser.parse_args()
+
+        def ensure_directory_exists(file_path):
+            directory = os.path.dirname(file_path)
+            if directory and not os.path.exists(directory):
+                os.makedirs(directory, exist_ok=True)
+
+        def read_json_safe(file_path):
+            """Safely read JSON file, return empty dict if fails"""
+            if not os.path.exists(file_path):
+                return {}
+            try:
+                with open(file_path, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"Warning: Could not read {file_path}: {e}")
+                return {}
+
+        print("=" * 80)
+        print("TRACKING LORA PIPELINE ESSENTIALS")
+        print("=" * 80)
+
+        # 1. Load Dataset Info
+        print(f"\n[1/3] Reading dataset metadata...")
+        dataset_info = read_json_safe(args.dataset_schema_json)
+        
+        dataset_source = dataset_info.get('dataset_source', 'unknown')
+        dataset_uri = dataset_info.get('dataset_uri', 'unknown')
+        num_train = dataset_info.get('num_train', 0)
+        num_val = dataset_info.get('num_val', 0)
+        
+        print(f"   Dataset: {dataset_source} - {dataset_uri}")
+        print(f"   Samples: {num_train} train, {num_val} validation")
+
+        # 2. Load Training Config (run_config.json)
+        print(f"\n[2/3] Reading training configuration...")
+        run_config_path = os.path.join(args.lora_adapters_dir, "run_config.json")
+        training_config = read_json_safe(run_config_path)
+        
+        base_model = training_config.get('model_name', 'unknown')
+        epochs = training_config.get('epochs', 0)
+        batch_size = training_config.get('batch_size', 0)
+        learning_rate = training_config.get('learning_rate', 0.0)
+        lora_r = training_config.get('lora_r', 0)
+        lora_alpha = training_config.get('lora_alpha', 0)
+        
+        print(f"   Base Model: {base_model}")
+        print(f"   Training: {epochs} epochs, batch={batch_size}, lr={learning_rate}")
+        print(f"   LoRA Config: r={lora_r}, alpha={lora_alpha}")
+
+        # 3. Check Merged Model (optional)
+        print(f"\n[3/3] Checking merged model...")
+        merged_model_exists = False
+        merged_model_path = 'not_merged'
+        
+        if args.merged_model_dir and os.path.exists(args.merged_model_dir):
+            merged_model_exists = True
+            merged_model_path = args.merged_model_dir
+            print(f"   Merged model found at: {merged_model_path}")
+        else:
+            print(f"   Merged model not provided or not found")
+
+        # 4. Prepare Essential Tracking Data
+        print(f"\n[4/4] Preparing tracking data...")
+        
+        # This is the ESSENTIAL data we want to track
+        tracking_data = {
+            "experiment_name": args.experiment_name,
+            "execution_timestamp": datetime.utcnow().isoformat() + "Z",
+            
+            # Dataset essentials
+            "dataset_source": dataset_source,
+            "dataset_name": dataset_uri,
+            "num_training_samples": num_train,
+            "num_validation_samples": num_val,
+            
+            # Model essentials
+            "base_model_name": base_model,
+            "adapter_location": args.lora_adapters_dir,
+            "merged_model_location": merged_model_path,
+            "model_merged": merged_model_exists,
+            
+            # Key hyperparameters only
+            "training_epochs": epochs,
+            "batch_size": batch_size,
+            "learning_rate": learning_rate,
+            "lora_rank": lora_r,
+            "lora_alpha": lora_alpha
+        }
+
+        print(f"\n   Tracking {len(tracking_data)} essential fields")
+
+        # 5. Update Schema Database
+        print("\n" + "=" * 80)
+        print("UPDATING SCHEMA DATABASE")
+        print("=" * 80)
+
+        # Read auth tokens
+        with open(args.bearer_auth_token, 'r') as f:
+            bearer_auth_token = f.read().strip()
+
+        with open(args.tenant_id, 'r') as f:
+            tenant_id = f.read().strip()
+
+        # Define mapping: schema_column_name -> tracking_data_key
+        # IMPORTANT: Adjust these column names to match YOUR schema!
+        mapping = {
+            "experiment_name": "experiment_name",
+            "timestamp": "execution_timestamp",
+            "dataset_source": "dataset_source",
+            "dataset_name": "dataset_name",
+            "train_samples": "num_training_samples",
+            "val_samples": "num_validation_samples",
+            "base_model": "base_model_name",
+            "adapter_path": "adapter_location",
+            "merged_model_path": "merged_model_location",
+            "is_merged": "model_merged",
+            "epochs": "training_epochs",
+            "batch_size": "batch_size",
+            "learning_rate": "learning_rate",
+            "lora_r": "lora_rank",
+            "lora_alpha": "lora_alpha"
+        }
+
+        # Keys that should be stored as float type
+        float_keys = ["learning_rate"]
+
+        print(f"\n[Schema Update] Execution ID: {args.execution_id}")
+        print(f"[Schema Update] Schema ID: {args.schema_id}")
+
+        # Setup HTTP session with retries
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {bearer_auth_token}'
+        }
+
+        retry_strategy = Retry(
+            total=3,
+            status_forcelist=[408, 500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET", "PUT", "POST", "DELETE", "OPTIONS", "TRACE"],
+            backoff_factor=1
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        http = requests.Session()
+        http.mount("https://", adapter)
+        http.mount("http://", adapter)
+
+        # Check if execution_id already exists
+        check_url = f"{args.domain}/pi-entity-instances-service/v3.0/schemas/{args.schema_id}/instances/list"
+        check_payload = {
+            "dbType": "TIDB",
+            "ownedOnly": True,
+            "filter": {
+                "execution_id": args.execution_id
+            }
+        }
+        
+        print(f"\n[Schema Update] Checking for existing record...")
+
+        try:
+            response = http.post(check_url, headers=headers, data=json.dumps(check_payload), timeout=60)
+            response.raise_for_status()
+            response_data = response.json()
+            
+            if response_data.get("content"):
+                # UPDATE existing row
+                print(f"[Schema Update] Found existing record - UPDATING")
+                
+                patch_requests = []
+                for schema_column, data_key in mapping.items():
+                    if data_key in tracking_data:
+                        value = tracking_data[data_key]
+                        
+                        # Convert to appropriate type
+                        if data_key in float_keys:
+                            try:
+                                value_to_patch = float(value)
+                            except (ValueError, TypeError):
+                                value_to_patch = str(value)
+                        elif isinstance(value, bool):
+                            value_to_patch = value
+                        elif isinstance(value, (int, float)):
+                            value_to_patch = value
+                        else:
+                            value_to_patch = str(value)
+
+                        patch_requests.append({
+                            "operation": "REPLACE",
+                            "path": schema_column,
+                            "value": value_to_patch
+                        })
+
+                update_url = f"{args.domain}/pi-entity-instances-service/v2.0/schemas/{args.schema_id}/instances"
+                update_payload = {
+                    "dbType": "TIDB",
+                    "conditionalFilter": {
+                        "conditions": [
+                            {
+                                "field": "execution_id",
+                                "operator": "EQUAL",
+                                "value": args.execution_id
+                            }
+                        ]
+                    },
+                    "partialUpdateRequests": [
+                        {
+                            "patch": patch_requests
+                        }
+                    ]
+                }
+                
+                print(f"[Schema Update] Updating {len(patch_requests)} fields...")
+                
+                response = http.patch(update_url, headers=headers, data=json.dumps(update_payload), timeout=60)
+                response.raise_for_status()
+                
+                print("[Schema Update] ✓ Successfully updated existing record")
+                status_message = f"Updated existing record for execution_id: {args.execution_id}"
+                
+            else:
+                # CREATE new row
+                print(f"[Schema Update] No existing record - CREATING NEW")
+                
+                creation_data = {}
+                for schema_column, data_key in mapping.items():
+                    if data_key in tracking_data:
+                        value = tracking_data[data_key]
+                        
+                        # Convert to appropriate type
+                        if data_key in float_keys:
+                            try:
+                                value_to_add = float(value)
+                            except (ValueError, TypeError):
+                                value_to_add = str(value)
+                        elif isinstance(value, bool):
+                            value_to_add = value
+                        elif isinstance(value, (int, float)):
+                            value_to_add = value
+                        else:
+                            value_to_add = str(value)
+                        
+                        creation_data[schema_column] = value_to_add
+                
+                # Add required metadata fields
+                creation_data['execution_id'] = args.execution_id
+                if args.model_id != '-1':
+                    creation_data['model_id'] = args.model_id
+                creation_data['tenant_id'] = tenant_id
+                if args.project_id != '-1':
+                    creation_data['project_id'] = args.project_id
+                if args.architecture_type != '-1':
+                    creation_data['architecture_type'] = args.architecture_type
+
+                create_url = f"{args.domain}/pi-entity-instances-service/v2.0/schemas/{args.schema_id}/instances"
+                create_payload = {
+                    "data": [creation_data]
+                }
+
+                print(f"[Schema Update] Creating record with {len(creation_data)} fields...")
+                
+                response = http.post(create_url, headers=headers, data=json.dumps(create_payload), timeout=60)
+                if response.status_code >= 400:
+                    print(f"[Schema Update] ✗ Error: {response.status_code} {response.reason}")
+                    print(f"[Schema Update] Response: {response.text}")
+                response.raise_for_status()
+                
+                print("[Schema Update] ✓ Successfully created new record")
+                status_message = f"Created new record for execution_id: {args.execution_id}"
+            
+            print(f"[Schema Update] API Response: {response.json()}")
+
+        except requests.exceptions.RequestException as e:
+            error_msg = f"Schema update failed: {str(e)}"
+            print(f"\n[Schema Update] ✗ {error_msg}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"[Schema Update] Status: {e.response.status_code}")
+                print(f"[Schema Update] Response: {e.response.text}")
+            status_message = error_msg
+
+        # Write status to output file
+        ensure_directory_exists(args.tracking_status)
+        with open(args.tracking_status, 'w') as f:
+            f.write(status_message)
+
+        print("\n" + "=" * 80)
+        print("TRACKING COMPLETE")
+        print("=" * 80)
+        print(f"Status: {status_message}")
+        print("=" * 80)
+
+    args:
+      - --dataset_schema_json
+      - {inputPath: dataset_schema_json}
+      - --lora_adapters_dir
+      - {inputPath: lora_adapters_dir}
+      - --merged_model_dir
+      - {inputPath: merged_model_dir}
+      - --execution_id
+      - {inputValue: execution_id}
+      - --experiment_name
+      - {inputValue: experiment_name}
+      - --schema_id
+      - {inputValue: schema_id}
+      - --tenant_id
+      - {inputPath: tenant_id}
+      - --project_id
+      - {inputValue: project_id}
+      - --model_id
+      - {inputValue: model_id}
+      - --architecture_type
+      - {inputValue: architecture_type}
+      - --bearer_auth_token
+      - {inputPath: bearer_auth_token}
+      - --domain
+      - {inputValue: domain}
+      - --tracking_status
+      - {outputPath: tracking_status}
