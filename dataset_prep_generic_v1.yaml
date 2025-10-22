@@ -10,7 +10,7 @@ inputs:
   - {name: validation_split, type: Float, description: 'Validation split ratio'}
   - {name: max_records, type: Integer, description: 'Limit for quick local tests'}
   - {name: hf_token, type: String, description: 'Hugging Face access token for private datasets'}  
-  - {name: access_token, type: string, description: 'Bearer access token for API auth'}     
+  - {name: access_token, type: String, description: 'Bearer access token for API auth'}     
 
 outputs:
   - {name: processed_dataset, type: Data}
@@ -329,3 +329,4 @@ implementation:
       - {outputPath: processed_dataset}
       - --schema_json
       - {outputPath: schema_json}
+
