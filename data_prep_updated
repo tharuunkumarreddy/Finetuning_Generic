@@ -1,4 +1,4 @@
-name: Generic_Updated Dataset Prep
+name: Generic Dataset Preparation
 description: Prepares datasets for LoRA fine-tuning (SLM/LLM/VLM) from either Hugging Face repositories or PI API structured JSON. Automatically formats data into chat-style messages and saves schema metadata for downstream fine-tuning.
 
 inputs:
@@ -10,7 +10,7 @@ inputs:
   - {name: validation_split, type: Float, description: 'Validation split ratio'}
   - {name: max_records, type: Integer, description: 'Limit for quick local tests'}
   - {name: hf_token, type: String, description: 'Hugging Face access token for private datasets'}  
-  - {name: access_token, type: String, description: 'Bearer access token for API auth'}     
+  - {name: bearer_token, type: String, description: 'Bearer token for PI API authentication'}     
 
 outputs:
   - {name: processed_dataset, type: Data}
@@ -23,18 +23,17 @@ implementation:
       - sh
       - -c
       - |
+        apt-get update && apt-get install -y curl
         exec "$0" "$@"
       - python3
       - -u
       - -c
       - |
         import argparse
+        import subprocess
         import os
         import json
         import pandas as pd
-        import requests
-        from requests.adapters import HTTPAdapter
-        from urllib3.util.retry import Retry
         from datasets import load_dataset, Dataset, DatasetDict
         import logging
         
@@ -55,17 +54,16 @@ implementation:
         parser.add_argument("--validation_split", type=float, default=0.02)
         parser.add_argument("--max_records", type=int, default=2000)
         parser.add_argument("--hf_token", default=None)
-        parser.add_argument("--access_token", default=None)
+        parser.add_argument("--bearer_token", default=None)
         parser.add_argument("--processed_dataset", required=True)
         parser.add_argument("--schema_json", required=True)
         args = parser.parse_args()
         
-        # Direct token usage - no file reading logic
         hf_token = args.hf_token
-        access_token = args.access_token
+        bearer_token = args.bearer_token
         
         logger.info(f"HF Token present: {bool(hf_token)}")
-        logger.info(f"Access Token present: {bool(access_token)}")
+        logger.info(f"Bearer Token present: {bool(bearer_token)}")
         
         def build_messages(example, input_col, output_col, image_col=None):
             user_msg = str(example.get(input_col, "")).strip()
@@ -100,10 +98,7 @@ implementation:
         
         def load_pi_api_dataset(api_url, bearer_token, input_field, output_field):
             logger.info(f"Fetching PI API dataset from {api_url}")
-            session = requests.Session()
-            retries = Retry(total=5, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
-            session.mount("http://", HTTPAdapter(max_retries=retries))
-            session.mount("https://", HTTPAdapter(max_retries=retries))
+            
             payload = {
                 "dbType": "TIDB",
                 "entityId": "",
@@ -115,16 +110,43 @@ implementation:
                 "endTime": 0
             }
             
-            # Updated authorization header logic - matching CDN uploader pattern
-            headers = {'Authorization': 'Bearer ' + bearer_token} if bearer_token else {}
+            # Write payload to temporary file
+            payload_file = '/tmp/api_payload.json'
+            with open(payload_file, 'w') as f:
+                json.dump(payload, f)
+            
+            # Build curl command similar to CDN uploader pattern
+            curl_command = [
+                'curl',
+                '--location', api_url,
+                '--header', 'Authorization: Bearer ' + bearer_token,
+                '--header', 'Content-Type: application/json',
+                '--data', '@' + payload_file,
+                '--fail',
+                '--show-error'
+            ]
+            
+            logger.info('Executing API request...')
             
             try:
-                resp = session.post(api_url, headers=headers, json=payload, timeout=60)
-                resp.raise_for_status()
-                raw_data = resp.json()
-            except Exception as e:
-                logger.error(f'API failed: {str(e)}')
+                process = subprocess.run(curl_command, capture_output=True, check=True)
+                response_text = process.stdout.decode('utf-8')
+                logger.info('API request successful!')
+                
+                raw_data = json.loads(response_text)
+            except subprocess.CalledProcessError as e:
+                logger.error('API request failed!')
+                logger.error('Exit code: ' + str(e.returncode))
+                logger.error('Error output: ' + e.stderr.decode('utf-8'))
                 raise
+            except json.JSONDecodeError as e:
+                logger.error('Failed to parse server response as JSON')
+                logger.error('Response was: ' + response_text)
+                raise
+            finally:
+                # Clean up temporary payload file
+                if os.path.exists(payload_file):
+                    os.remove(payload_file)
             
             logger.info(f"Raw API response type: {type(raw_data)}")
             if isinstance(raw_data, list) and raw_data:
@@ -246,9 +268,9 @@ implementation:
         if args.dataset_source.lower() == "huggingface":
             dataset = load_hf_dataset(args.dataset_uri, hf_token)
         elif args.dataset_source.lower() == "pi_api":
-            if not access_token:
-                raise ValueError("PI API mode requires access_token. Please provide a valid access token.")
-            dataset = load_pi_api_dataset(args.dataset_uri, access_token, args.input_field, args.output_field)
+            if not bearer_token:
+                raise ValueError("PI API mode requires bearer_token. Please provide a valid bearer token.")
+            dataset = load_pi_api_dataset(args.dataset_uri, bearer_token, args.input_field, args.output_field)
         else:
             raise ValueError(f"Unsupported dataset_source: {args.dataset_source}")
         
@@ -300,8 +322,8 @@ implementation:
       - {inputValue: max_records}
       - --hf_token
       - {inputValue: hf_token}
-      - --access_token
-      - {inputValue: access_token}
+      - --bearer_token
+      - {inputValue: bearer_token}
       - --processed_dataset
       - {outputPath: processed_dataset}
       - --schema_json
