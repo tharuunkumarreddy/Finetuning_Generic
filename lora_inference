@@ -241,7 +241,7 @@ implementation:
 
         if __name__ == "__main__":
             main()
-    
+
     args:
       - --base_model
       - {inputValue: base_model}
