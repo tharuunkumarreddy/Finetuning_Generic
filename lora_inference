@@ -25,9 +25,12 @@ implementation:
     image: nikhilv215/nesy-factory:v22
     command:
       - sh
-      - -c
+      - -ec
       - |
-        (pip install --no-cache-dir peft > /dev/null 2>&1) && python3 -u -c '
+        program_path=$(mktemp -d)
+        printf "%s" "$0" > "$program_path/ephemeral_component.py"
+        python3 -m pip install --quiet --no-warn-script-location peft && python3 "$program_path/ephemeral_component.py" "$@"
+      - |
         import argparse
         import os
         import json
@@ -37,7 +40,7 @@ implementation:
         import logging
         
         logging.basicConfig(level=logging.INFO)
-        logger = logging.getLogger("lora_inference")
+        logger = logging.getLogger('lora_inference')
         
         def ensure_directory_exists(file_path):
             directory = os.path.dirname(file_path)
@@ -50,7 +53,7 @@ implementation:
             token_str = str(token_arg).strip()
             if os.path.exists(token_str):
                 try:
-                    with open(token_str, "r") as f:
+                    with open(token_str, 'r') as f:
                         content = f.read().strip()
                         return content if content else None
                 except Exception as e:
@@ -132,7 +135,7 @@ implementation:
                 
                 for path in config_paths:
                     if os.path.exists(path):
-                        with open(path, "r") as f:
+                        with open(path, 'r') as f:
                             return json.load(f)
                 return {}
             
@@ -144,7 +147,7 @@ implementation:
                 
                 for path in schema_paths:
                     if os.path.exists(path):
-                        with open(path, "r") as f:
+                        with open(path, 'r') as f:
                             return json.load(f)
                 return {}
             
@@ -157,16 +160,16 @@ implementation:
                 
                 if self.config:
                     logger.info("Training Config:")
-                    logger.info(f"  - Epochs: {self.config.get(\"epochs\", \"N/A\")}")
-                    logger.info(f"  - Learning Rate: {self.config.get(\"learning_rate\", \"N/A\")}")
-                    logger.info(f"  - LoRA Rank (r): {self.config.get(\"lora_r\", \"N/A\")}")
-                    logger.info(f"  - Training Samples: {self.config.get(\"num_train_samples\", \"N/A\")}")
+                    logger.info(f"  - Epochs: {self.config.get('epochs', 'N/A')}")
+                    logger.info(f"  - Learning Rate: {self.config.get('learning_rate', 'N/A')}")
+                    logger.info(f"  - LoRA Rank (r): {self.config.get('lora_r', 'N/A')}")
+                    logger.info(f"  - Training Samples: {self.config.get('num_train_samples', 'N/A')}")
                 
                 if self.schema:
                     logger.info("Dataset Info:")
-                    logger.info(f"  - Source: {self.schema.get(\"dataset_uri\", \"N/A\")}")
-                    logger.info(f"  - Input Field: {self.schema.get(\"input_field\", \"N/A\")}")
-                    logger.info(f"  - Output Field: {self.schema.get(\"output_field\", \"N/A\")}")
+                    logger.info(f"  - Source: {self.schema.get('dataset_uri', 'N/A')}")
+                    logger.info(f"  - Input Field: {self.schema.get('input_field', 'N/A')}")
+                    logger.info(f"  - Output Field: {self.schema.get('output_field', 'N/A')}")
             
             def generate(self, prompt, max_new_tokens=150, temperature=0.7, top_p=0.9, top_k=50, do_sample=True, repetition_penalty=1.1):
                 user_prefix = "User: "
@@ -343,9 +346,8 @@ implementation:
         logger.info("="*70)
         logger.info("Inference complete!")
         logger.info(f"Results saved to: {args.inference_results}")
-        logger.info(f"Total inferences: {len(results[\"inferences\"])}")
+        logger.info(f"Total inferences: {len(results['inferences'])}")
         logger.info("="*70)
-        ' "$@"
     args:
       - --base_model
       - {inputValue: base_model}
