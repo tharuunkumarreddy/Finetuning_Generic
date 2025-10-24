@@ -1,19 +1,20 @@
 name: Generic LoRA Inference
-description: Universal inference component that generates predictions using fine-tuned LoRA adapters. Works with any model and dataset.
+description: Performs inference using fine-tuned LoRA adapters on any base model. Automatically detects model configuration and generates responses for given prompts.
 
 inputs:
-  - {name: model_name, type: String, description: 'Base model name (must match training)'}
-  - {name: lora_adapters, type: Model, description: 'LoRA adapters from Generic LoRA Fine-tuning component'}
-  - {name: test_prompts, type: String, description: 'JSON array of test prompts or single prompt string'}
-  - {name: max_tokens, type: Integer, default: '150', description: 'Maximum tokens to generate per response'}
-  - {name: temperature, type: Float, default: '0.7', description: 'Sampling temperature (0.0-1.0)'}
-  - {name: top_p, type: Float, default: '0.9', description: 'Nucleus sampling probability'}
-  - {name: batch_size, type: Integer, default: '1', description: 'Number of prompts to process at once'}
-  - {name: hf_token, type: String, description: 'Hugging Face access token'}
+  - {name: base_model, type: String, description: 'Base model name (must match the model used during training)'}
+  - {name: lora_adapters, type: Model, description: 'Path to LoRA adapters from Generic LoRA Fine-tuning component'}
+  - {name: prompt, type: String, description: 'Input prompt for inference'}
+  - {name: max_tokens, type: Integer, description: 'Maximum tokens to generate', default: '150'}
+  - {name: temperature, type: Float, description: 'Sampling temperature', default: '0.7'}
+  - {name: top_p, type: Float, description: 'Nucleus sampling parameter', default: '0.9'}
+  - {name: top_k, type: Integer, description: 'Top-k sampling parameter', default: '50'}
+  - {name: repetition_penalty, type: Float, description: 'Penalty for repetition', default: '1.1'}
+  - {name: hf_token, type: String, description: 'Hugging Face access token for gated models', default: ''}
 
 outputs:
-  - {name: predictions, type: Data, description: 'JSON file with prompts and generated responses'}
-  - {name: metrics, type: Metrics, description: 'Inference metrics (latency, tokens/sec)'}
+  - {name: inference_output, type: String, description: 'Generated response text'}
+  - {name: inference_metadata, type: Data, description: 'Metadata about the inference run'}
 
 metadata:
   annotations:
@@ -30,302 +31,268 @@ implementation:
       - -u
       - -c
       - |
-        def _make_parent_dirs_and_return_path(file_path):
-            import os
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
-            return file_path
-        
-        def run_inference(
-            model_name_path,
-            lora_adapters_path,
-            test_prompts_str,
-            max_tokens_val,
-            temperature_val,
-            top_p_val,
-            batch_size_val,
-            hf_token_val,
-            predictions_path,
-            metrics_path,
-        ):
-            import os
-            import json
-            import time
-            import torch
-            from transformers import AutoTokenizer, AutoModelForCausalLM
-            from peft import PeftModel
-            import logging
-            
-            logging.basicConfig(level=logging.INFO)
-            logger = logging.getLogger("lora_inference")
-            
-            def ensure_directory_exists(file_path):
-                directory = os.path.dirname(file_path)
-                if directory and not os.path.exists(directory):
-                    os.makedirs(directory, exist_ok=True)
-            
-            def get_token_value(token_arg):
-                if not token_arg:
+        import argparse
+        import os
+        import sys
+        import json
+        import torch
+        from transformers import AutoTokenizer, AutoModelForCausalLM
+        from peft import PeftModel
+        import logging
+
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger('lora_inference')
+
+        def ensure_directory_exists(file_path):
+            directory = os.path.dirname(file_path)
+            if directory and not os.path.exists(directory):
+                os.makedirs(directory, exist_ok=True)
+
+        def get_token_value(token_arg):
+            if not token_arg:
+                return None
+            token_str = str(token_arg).strip()
+            if os.path.exists(token_str):
+                try:
+                    with open(token_str, 'r') as f:
+                        content = f.read().strip()
+                        return content if content else None
+                except Exception as e:
+                    logger.error(f"Failed to read token file: {e}")
                     return None
-                token_str = str(token_arg).strip()
-                if os.path.exists(token_str):
+            else:
+                return token_str if token_str and token_str != "None" else None
+
+        class UniversalLoRAInference:
+            def __init__(self, base_model_name, adapter_path, hf_token=None, device="auto"):
+                self.device = device
+                self.base_model_name = base_model_name
+                self.adapter_path = adapter_path
+
+                logger.info("=" * 70)
+                logger.info("Universal LoRA Inference Engine")
+                logger.info("=" * 70)
+
+                if hf_token:
                     try:
-                        with open(token_str) as f:
-                            content = f.read().strip()
-                            return content if content else None
+                        from huggingface_hub import login
+                        login(token=hf_token)
+                        logger.info("Logged in to Hugging Face Hub")
                     except Exception as e:
-                        logger.error(f"Failed to read token file: {e}")
-                        return None
-                else:
-                    return token_str if token_str and token_str != "None" else None
-            
-            def find_adapter_directory(base_path):
-                # Auto-detect adapter directory
+                        logger.warning(f"Failed to login to HF: {e}")
+
+                self.config = self._load_training_config()
+                self.schema = self._load_schema()
+
+                logger.info(f"Loading tokenizer: {base_model_name}")
+                tokenizer_kwargs = {"trust_remote_code": True}
+                if hf_token:
+                    tokenizer_kwargs["token"] = hf_token
+
+                self.tokenizer = AutoTokenizer.from_pretrained(base_model_name, **tokenizer_kwargs)
+                if self.tokenizer.pad_token is None:
+                    self.tokenizer.pad_token = self.tokenizer.eos_token
+                    logger.info("Set pad_token to eos_token")
+
+                logger.info(f"Loading base model: {base_model_name}")
+                model_kwargs = {
+                    "torch_dtype": torch.float32,
+                    "device_map": device,
+                    "trust_remote_code": True,
+                    "low_cpu_mem_usage": True
+                }
+                if hf_token:
+                    model_kwargs["token"] = hf_token
+
+                base_model = AutoModelForCausalLM.from_pretrained(base_model_name, **model_kwargs)
+
+                adapter_dir = self._find_adapter_directory()
+                logger.info(f"Loading LoRA adapters from: {adapter_dir}")
+                self.model = PeftModel.from_pretrained(base_model, adapter_dir)
+                self.model.eval()
+
+                self._display_info()
+                logger.info("=" * 70)
+
+            def _find_adapter_directory(self):
                 possible_paths = [
-                    base_path,
-                    os.path.join(base_path, "adapter"),
-                    os.path.join(base_path, "data", "adapter"),
-                    os.path.join(base_path, "data")
+                    self.adapter_path,
+                    os.path.join(self.adapter_path, "adapter"),
+                    os.path.join(self.adapter_path, "data", "adapter"),
+                    os.path.join(self.adapter_path, "data")
                 ]
-                
                 for path in possible_paths:
                     adapter_config = os.path.join(path, "adapter_config.json")
                     if os.path.exists(adapter_config):
-                        logger.info(f"Found adapter directory: {path}")
+                        logger.info(f"Found adapter config at: {adapter_config}")
                         return path
-                
-                logger.warning(f"Could not find adapter_config.json, using: {base_path}")
-                return base_path
-            
-            def parse_test_prompts(prompts_str):
-                # Parse test prompts from string (JSON array or single prompt)
-                try:
-                    prompts = json.loads(prompts_str)
-                    if isinstance(prompts, list):
-                        return prompts
-                    elif isinstance(prompts, str):
-                        return [prompts]
-                    else:
-                        return [str(prompts)]
-                except (json.JSONDecodeError, TypeError):
-                    return [prompts_str]
-            
-            hf_token = get_token_value(hf_token_val)
-            logger.info(f"HF Token present: {bool(hf_token)}")
-            
-            from huggingface_hub import login
-            if hf_token:
-                try:
-                    login(token=hf_token)
-                    logger.info("Logged in to Hugging Face Hub")
-                except Exception as e:
-                    logger.error(f"Failed to login to HF: {e}")
-            
-            ensure_directory_exists(predictions_path)
-            ensure_directory_exists(metrics_path)
-            
-            logger.info("=" * 70)
-            logger.info("Universal LoRA Inference")
-            logger.info("=" * 70)
-            logger.info(f"Base Model: {model_name_path}")
-            logger.info(f"Adapter Path: {lora_adapters_path}")
-            
-            logger.info(f"Loading tokenizer: {model_name_path}")
-            tokenizer_kwargs = {"trust_remote_code": True}
-            if hf_token:
-                tokenizer_kwargs["token"] = hf_token
-            
-            tokenizer = AutoTokenizer.from_pretrained(model_name_path, **tokenizer_kwargs)
-            if tokenizer.pad_token is None:
-                tokenizer.pad_token = tokenizer.eos_token
-                logger.info("Set pad_token to eos_token")
-            
-            logger.info(f"Loading base model: {model_name_path}")
-            model_kwargs = {
-                "trust_remote_code": True,
-                "torch_dtype": torch.float32,
-                "device_map": "auto",
-                "low_cpu_mem_usage": True
-            }
-            if hf_token:
-                model_kwargs["token"] = hf_token
-            
-            base_model = AutoModelForCausalLM.from_pretrained(model_name_path, **model_kwargs)
-            logger.info(f"Base model loaded: {type(base_model).__name__}")
-            
-            adapter_dir = find_adapter_directory(lora_adapters_path)
-            logger.info(f"Loading LoRA adapters from: {adapter_dir}")
-            model = PeftModel.from_pretrained(base_model, adapter_dir)
-            model.eval()
-            logger.info("LoRA adapters loaded successfully")
-            logger.info(f"Device: {model.device}")
-            logger.info("=" * 70)
-            
-            test_prompts = parse_test_prompts(test_prompts_str)
-            logger.info(f"Number of test prompts: {len(test_prompts)}")
-            
-            results = []
-            total_tokens = 0
-            total_time = 0
-            
-            logger.info("")
-            logger.info("Starting inference...")
-            logger.info("-" * 70)
-            
-            for idx, prompt in enumerate(test_prompts, 1):
-                try:
-                    logger.info("")
-                    prompt_num = f"[{idx}/{len(test_prompts)}]"
-                    logger.info(f"{prompt_num} Processing prompt...")
-                    if len(prompt) > 100:
-                        logger.info(f"Prompt: {prompt[:100]}...")
-                    else:
-                        logger.info(f"Prompt: {prompt}")
-                    
-                    user_prefix = "User: "
-                    assistant_prefix = "\nAssistant:"
-                    formatted_prompt = user_prefix + prompt + assistant_prefix
-                    
-                    inputs = tokenizer(
-                        formatted_prompt,
-                        return_tensors="pt",
-                        truncation=True,
-                        max_length=512
+                logger.warning(f"Adapter config not found, using provided path: {self.adapter_path}")
+                return self.adapter_path
+
+            def _load_training_config(self):
+                config_paths = [
+                    os.path.join(self.adapter_path, "run_config.json"),
+                    os.path.join(self.adapter_path, "data", "run_config.json")
+                ]
+                for path in config_paths:
+                    if os.path.exists(path):
+                        logger.info(f"Loading training config from: {path}")
+                        with open(path, 'r') as f:
+                            return json.load(f)
+                logger.info("No training config found")
+                return {}
+
+            def _load_schema(self):
+                schema_paths = [
+                    os.path.join(self.adapter_path, "schema.json"),
+                    os.path.join(self.adapter_path, "data", "schema.json")
+                ]
+                for path in schema_paths:
+                    if os.path.exists(path):
+                        logger.info(f"Loading schema from: {path}")
+                        with open(path, 'r') as f:
+                            return json.load(f)
+                logger.info("No schema found")
+                return {}
+
+            def _display_info(self):
+                logger.info("-" * 70)
+                logger.info("MODEL INFORMATION")
+                logger.info("-" * 70)
+                logger.info(f"Base Model: {self.base_model_name}")
+                logger.info(f"Device: {self.model.device}")
+                if self.config:
+                    logger.info("Training Config:")
+                    logger.info(f"  - Epochs: {self.config.get('epochs', 'N/A')}")
+                    logger.info(f"  - Learning Rate: {self.config.get('learning_rate', 'N/A')}")
+                    logger.info(f"  - LoRA Rank (r): {self.config.get('lora_r', 'N/A')}")
+                    logger.info(f"  - Training Samples: {self.config.get('num_train_samples', 'N/A')}")
+                if self.schema:
+                    logger.info("Dataset Info:")
+                    logger.info(f"  - Source: {self.schema.get('dataset_uri', 'N/A')}")
+                    logger.info(f"  - Input Field: {self.schema.get('input_field', 'N/A')}")
+                    logger.info(f"  - Output Field: {self.schema.get('output_field', 'N/A')}")
+
+            def generate(self, prompt, max_new_tokens=150, temperature=0.7, top_p=0.9, top_k=50, do_sample=True, repetition_penalty=1.1):
+                formatted_prompt = f"User: {prompt}\nAssistant:"
+                logger.info(f"Formatted prompt: {formatted_prompt}")
+                inputs = self.tokenizer(formatted_prompt, return_tensors="pt", truncation=True, max_length=512)
+                inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+                logger.info(f"Generating with max_new_tokens={max_new_tokens}, temperature={temperature}")
+                with torch.no_grad():
+                    outputs = self.model.generate(
+                        **inputs,
+                        max_new_tokens=max_new_tokens,
+                        temperature=temperature,
+                        top_p=top_p,
+                        top_k=top_k,
+                        do_sample=do_sample,
+                        repetition_penalty=repetition_penalty,
+                        pad_token_id=self.tokenizer.pad_token_id,
+                        eos_token_id=self.tokenizer.eos_token_id
                     )
-                    inputs = {k: v.to(model.device) for k, v in inputs.items()}
-                    
-                    start_time = time.time()
-                    with torch.no_grad():
-                        outputs = model.generate(
-                            **inputs,
-                            max_new_tokens=max_tokens_val,
-                            temperature=temperature_val,
-                            top_p=top_p_val,
-                            do_sample=True,
-                            repetition_penalty=1.1,
-                            pad_token_id=tokenizer.pad_token_id,
-                            eos_token_id=tokenizer.eos_token_id
-                        )
-                    inference_time = time.time() - start_time
-                    
-                    full_response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-                    
-                    if "Assistant:" in full_response:
-                        response = full_response.split("Assistant:")[-1].strip()
-                    else:
-                        response = full_response[len(formatted_prompt):].strip()
-                    
-                    num_tokens = len(outputs[0]) - len(inputs['input_ids'][0])
-                    tokens_per_sec = num_tokens / inference_time if inference_time > 0 else 0
-                    
-                    if len(response) > 100:
-                        logger.info(f"Response: {response[:100]}...")
-                    else:
-                        logger.info(f"Response: {response}")
-                    logger.info(f"Time: {inference_time:.2f}s | Tokens: {num_tokens} | Speed: {tokens_per_sec:.2f} tok/s")
-                    
-                    result = {
-                        "prompt_id": idx,
-                        "prompt": prompt,
-                        "response": response,
-                        "inference_time_sec": round(inference_time, 3),
-                        "tokens_generated": num_tokens,
-                        "tokens_per_second": round(tokens_per_sec, 2)
-                    }
-                    results.append(result)
-                    
-                    total_tokens += num_tokens
-                    total_time += inference_time
-                    
-                except Exception as e:
-                    logger.error(f"Error processing prompt {idx}: {e}")
-                    results.append({
-                        "prompt_id": idx,
-                        "prompt": prompt,
-                        "response": f"ERROR: {str(e)}",
-                        "inference_time_sec": 0,
-                        "tokens_generated": 0,
-                        "tokens_per_second": 0
-                    })
-            
-            predictions_output = {
-                "model": model_name_path,
-                "num_prompts": len(test_prompts),
-                "predictions": results
-            }
-            
-            with open(predictions_path, 'w') as f:
-                json.dump(predictions_output, f, indent=2)
-            
-            logger.info("")
-            logger.info("=" * 70)
-            logger.info("Inference Complete!")
-            logger.info(f"Predictions saved to: {predictions_path}")
-            
-            avg_time = total_time / len(test_prompts) if test_prompts else 0
-            avg_tokens = total_tokens / len(test_prompts) if test_prompts else 0
-            avg_speed = total_tokens / total_time if total_time > 0 else 0
-            
-            metrics = {
-                "model_name": model_name_path,
-                "num_prompts": len(test_prompts),
-                "total_inference_time_sec": round(total_time, 3),
-                "average_time_per_prompt_sec": round(avg_time, 3),
-                "total_tokens_generated": total_tokens,
-                "average_tokens_per_prompt": round(avg_tokens, 2),
-                "average_tokens_per_second": round(avg_speed, 2),
-                "parameters": {
-                    "max_tokens": max_tokens_val,
-                    "temperature": temperature_val,
-                    "top_p": top_p_val,
-                    "batch_size": batch_size_val
-                }
-            }
-            
-            with open(metrics_path, 'w') as f:
-                json.dump(metrics, f, indent=2)
-            
-            logger.info(f"Metrics saved to: {metrics_path}")
-            logger.info("")
-            logger.info("Summary:")
-            logger.info(f"  - Total Prompts: {len(test_prompts)}")
-            logger.info(f"  - Avg Time/Prompt: {avg_time:.2f}s")
-            logger.info(f"  - Avg Tokens/Prompt: {avg_tokens:.1f}")
-            logger.info(f"  - Avg Speed: {avg_speed:.2f} tokens/sec")
-            logger.info("=" * 70)
-        
-        import argparse
-        _parser = argparse.ArgumentParser(prog="Generic LoRA Inference", description="Universal inference for any fine-tuned LoRA model")
-        _parser.add_argument("--model_name", dest="model_name_path", type=str, required=True, default=argparse.SUPPRESS)
-        _parser.add_argument("--lora_adapters", dest="lora_adapters_path", type=str, required=True, default=argparse.SUPPRESS)
-        _parser.add_argument("--test_prompts", dest="test_prompts_str", type=str, required=True, default=argparse.SUPPRESS)
-        _parser.add_argument("--max_tokens", dest="max_tokens_val", type=int, required=True, default=argparse.SUPPRESS)
-        _parser.add_argument("--temperature", dest="temperature_val", type=float, required=True, default=argparse.SUPPRESS)
-        _parser.add_argument("--top_p", dest="top_p_val", type=float, required=True, default=argparse.SUPPRESS)
-        _parser.add_argument("--batch_size", dest="batch_size_val", type=int, required=True, default=argparse.SUPPRESS)
-        _parser.add_argument("--hf_token", dest="hf_token_val", type=str, required=True, default=argparse.SUPPRESS)
-        _parser.add_argument("--predictions", dest="predictions_path", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
-        _parser.add_argument("--metrics", dest="metrics_path", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
-        _parsed_args = vars(_parser.parse_args())
-        run_inference(**_parsed_args)
+                full_response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+                if "Assistant:" in full_response:
+                    response = full_response.split("Assistant:")[-1].strip()
+                else:
+                    response = full_response[len(formatted_prompt):].strip()
+                logger.info(f"Generated response length: {len(response)} characters")
+                return response
+
+        parser = argparse.ArgumentParser(description="Generic LoRA Inference")
+        parser.add_argument("--base_model", required=True)
+        parser.add_argument("--lora_adapters", required=True)
+        parser.add_argument("--prompt", required=True)
+        parser.add_argument("--max_tokens", type=int, default=150)
+        parser.add_argument("--temperature", type=float, default=0.7)
+        parser.add_argument("--top_p", type=float, default=0.9)
+        parser.add_argument("--top_k", type=int, default=50)
+        parser.add_argument("--repetition_penalty", type=float, default=1.1)
+        parser.add_argument("--hf_token", default=None)
+        parser.add_argument("--inference_output", required=True)
+        parser.add_argument("--inference_metadata", required=True)
+        args = parser.parse_args()
+
+        hf_token = get_token_value(args.hf_token)
+        logger.info(f"HF Token present: {bool(hf_token)}")
+
+        ensure_directory_exists(args.inference_output)
+        ensure_directory_exists(args.inference_metadata)
+
+        if not os.path.exists(args.lora_adapters):
+            logger.error(f"Adapter path not found: {args.lora_adapters}")
+            sys.exit(1)
+
+        logger.info("=" * 70)
+        logger.info("Starting LoRA Inference")
+        logger.info("=" * 70)
+        logger.info(f"Base Model: {args.base_model}")
+        logger.info(f"Adapter Path: {args.lora_adapters}")
+        logger.info(f"Prompt: {args.prompt}")
+        logger.info("=" * 70)
+
+        engine = UniversalLoRAInference(
+            base_model_name=args.base_model,
+            adapter_path=args.lora_adapters,
+            hf_token=hf_token,
+            device="auto"
+        )
+
+        response = engine.generate(
+            prompt=args.prompt,
+            max_new_tokens=args.max_tokens,
+            temperature=args.temperature,
+            top_p=args.top_p,
+            top_k=args.top_k,
+            do_sample=True,
+            repetition_penalty=args.repetition_penalty
+        )
+
+        with open(args.inference_output, 'w', encoding='utf-8') as f:
+            f.write(response)
+
+        metadata = {
+            "base_model": args.base_model,
+            "adapter_path": args.lora_adapters,
+            "prompt": args.prompt,
+            "response": response,
+            "response_length": len(response),
+            "parameters": {
+                "max_tokens": args.max_tokens,
+                "temperature": args.temperature,
+                "top_p": args.top_p,
+                "top_k": args.top_k,
+                "repetition_penalty": args.repetition_penalty
+            },
+            "training_config": engine.config,
+            "dataset_schema": engine.schema
+        }
+
+        with open(args.inference_metadata, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, indent=2, ensure_ascii=False)
+
+        logger.info("Inference complete!")
 
     args:
-      - --model_name
-      - {inputValue: model_name}
+      - --base_model
+      - {inputValue: base_model}
       - --lora_adapters
       - {inputPath: lora_adapters}
-      - --test_prompts
-      - {inputValue: test_prompts}
+      - --prompt
+      - {inputValue: prompt}
       - --max_tokens
       - {inputValue: max_tokens}
       - --temperature
       - {inputValue: temperature}
       - --top_p
       - {inputValue: top_p}
-      - --batch_size
-      - {inputValue: batch_size}
+      - --top_k
+      - {inputValue: top_k}
+      - --repetition_penalty
+      - {inputValue: repetition_penalty}
       - --hf_token
       - {inputValue: hf_token}
-      - --predictions
-      - {outputPath: predictions}
-      - --metrics
-      - {outputPath: metrics}
+      - --inference_output
+      - {outputPath: inference_output}
+      - --inference_metadata
+      - {outputPath: inference_metadata}
