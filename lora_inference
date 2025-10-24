@@ -23,11 +23,12 @@ implementation:
       - sh
       - -c
       - |
-      - (pip install --no-cache-dir peft > /dev/null 2>&1) && "$0" "$@"
+        exec "$0" "$@"
+      - pip install --no-cache-dir peft > /dev/null 2>&1
       - python3
       - -u
       - -c
-      - |
+        |
         import os
         import sys
         import json
@@ -37,8 +38,6 @@ implementation:
         import argparse
 
         class UniversalLoRAInference:
-            """Universal inference engine that adapts to any fine-tuned model"""
-
             def __init__(self, base_model_name, adapter_path, device="auto"):
                 self.device = device
                 self.base_model_name = base_model_name
@@ -85,8 +84,6 @@ implementation:
                 print()
 
             def _find_adapter_directory(self):
-                """Automatically find the adapter directory"""
-                # Try common locations
                 possible_paths = [
                     self.adapter_path,
                     os.path.join(self.adapter_path, "adapter"),
@@ -99,11 +96,9 @@ implementation:
                     if os.path.exists(adapter_config):
                         return path
 
-                # If not found, use the provided path
                 return self.adapter_path
 
             def _load_training_config(self):
-                """Load training configuration if available"""
                 config_paths = [
                     os.path.join(self.adapter_path, "run_config.json"),
                     os.path.join(self.adapter_path, "data", "run_config.json")
@@ -116,7 +111,6 @@ implementation:
                 return {}
 
             def _load_schema(self):
-                """Load dataset schema if available"""
                 schema_paths = [
                     os.path.join(self.adapter_path, "schema.json"),
                     os.path.join(self.adapter_path, "data", "schema.json")
@@ -129,7 +123,6 @@ implementation:
                 return {}
 
             def _display_info(self):
-                """Display model and training information"""
                 print("\n" + "-" * 70)
                 print("MODEL INFORMATION")
                 print("-" * 70)
@@ -149,46 +142,12 @@ implementation:
                     print(f"  - Input Field: {self.schema.get('input_field', 'N/A')}")
                     print(f"  - Output Field: {self.schema.get('output_field', 'N/A')}")
 
-            def generate(
-                self,
-                prompt,
-                max_new_tokens=150,
-                temperature=0.7,
-                top_p=0.9,
-                top_k=50,
-                do_sample=True,
-                repetition_penalty=1.1
-            ):
-                """
-                Generate response for any prompt
-
-                Args:
-                    prompt: Input text
-                    max_new_tokens: Max tokens to generate
-                    temperature: Sampling temperature
-                    top_p: Nucleus sampling
-                    top_k: Top-k sampling
-                    do_sample: Use sampling vs greedy
-                    repetition_penalty: Penalty for repetition
-
-                Returns:
-                    Generated text
-                """
-                # Format prompt (universal format that works for most cases)
+            def generate(self, prompt, max_new_tokens=150, temperature=0.7, top_p=0.9, top_k=50, do_sample=True, repetition_penalty=1.1):
                 formatted_prompt = f"User: {prompt}\nAssistant:"
 
-                # Tokenize
-                inputs = self.tokenizer(
-                    formatted_prompt,
-                    return_tensors="pt",
-                    truncation=True,
-                    max_length=512
-                )
-
-                # Move to device
+                inputs = self.tokenizer(formatted_prompt, return_tensors="pt", truncation=True, max_length=512)
                 inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
 
-                # Generate
                 with torch.no_grad():
                     outputs = self.model.generate(
                         **inputs,
@@ -202,33 +161,27 @@ implementation:
                         eos_token_id=self.tokenizer.eos_token_id
                     )
 
-                # Decode
                 full_response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-                # Extract only the generated part (after "Assistant:")
                 if "Assistant:" in full_response:
                     response = full_response.split("Assistant:")[-1].strip()
                 else:
-                    # Fallback: remove the input prompt
                     response = full_response[len(formatted_prompt):].strip()
 
                 return response
 
         def main():
-            # Initialize engine
             engine = UniversalLoRAInference(
                 base_model_name="{{inputs.base_model}}",
                 adapter_path="{{inputs.adapter_path}}",
                 device="{{inputs.device}}"
             )
 
-            # Single prompt mode
             response = engine.generate(
                 "{{inputs.prompt}}",
                 max_new_tokens={{inputs.max_tokens}},
                 temperature={{inputs.temperature}}
             )
-            # Output the response
             {{outputs.response}} = response
 
         if __name__ == "__main__":
