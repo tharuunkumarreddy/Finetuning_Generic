@@ -27,7 +27,7 @@ implementation:
       - sh
       - -c
       - |
-        exec "$0" "$@"
+      - (pip install --no-cache-dir peft > /dev/null 2>&1) && "$0" "$@"
       - python3
       - -u
       - -c
