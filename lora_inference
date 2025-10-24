@@ -27,7 +27,7 @@ implementation:
       - sh
       - -c
       - |
-      - (pip install --no-cache-dir peft > /dev/null 2>&1) && "$0" "$@"
+        exec "$0" "$@"
       - python3
       - -u
       - -c
@@ -182,7 +182,7 @@ implementation:
                 do_sample=True,
                 repetition_penalty=1.1
             ):
-                formatted_prompt = f"User: {prompt}\nAssistant:"
+                formatted_prompt = "User: " + prompt + "\nAssistant:"
                 
                 inputs = self.tokenizer(
                     formatted_prompt,
@@ -191,11 +191,14 @@ implementation:
                     max_length=512
                 )
                 
-                inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+                device_inputs = {}
+                for k, v in inputs.items():
+                    device_inputs[k] = v.to(self.model.device)
                 
                 with torch.no_grad():
                     outputs = self.model.generate(
-                        **inputs,
+                        input_ids=device_inputs["input_ids"],
+                        attention_mask=device_inputs["attention_mask"],
                         max_new_tokens=max_new_tokens,
                         temperature=temperature,
                         top_p=top_p,
@@ -208,8 +211,9 @@ implementation:
                 
                 full_response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
                 
-                if "Assistant:" in full_response:
-                    response = full_response.split("Assistant:")[-1].strip()
+                assistant_marker = "Assistant:"
+                if assistant_marker in full_response:
+                    response = full_response.split(assistant_marker)[-1].strip()
                 else:
                     response = full_response[len(formatted_prompt):].strip()
                 
