@@ -99,7 +99,6 @@ implementation:
             def parse_test_prompts(prompts_str):
                 # Parse test prompts from string (JSON array or single prompt)
                 try:
-                    # Try parsing as JSON array
                     prompts = json.loads(prompts_str)
                     if isinstance(prompts, list):
                         return prompts
@@ -108,10 +107,8 @@ implementation:
                     else:
                         return [str(prompts)]
                 except (json.JSONDecodeError, TypeError):
-                    # Treat as single prompt string
                     return [prompts_str]
             
-            # Setup
             hf_token = get_token_value(hf_token_val)
             logger.info(f"HF Token present: {bool(hf_token)}")
             
@@ -132,7 +129,6 @@ implementation:
             logger.info(f"Base Model: {model_name_path}")
             logger.info(f"Adapter Path: {lora_adapters_path}")
             
-            # Load tokenizer
             logger.info(f"Loading tokenizer: {model_name_path}")
             tokenizer_kwargs = {"trust_remote_code": True}
             if hf_token:
@@ -143,7 +139,6 @@ implementation:
                 tokenizer.pad_token = tokenizer.eos_token
                 logger.info("Set pad_token to eos_token")
             
-            # Load base model
             logger.info(f"Loading base model: {model_name_path}")
             model_kwargs = {
                 "trust_remote_code": True,
@@ -157,7 +152,6 @@ implementation:
             base_model = AutoModelForCausalLM.from_pretrained(model_name_path, **model_kwargs)
             logger.info(f"Base model loaded: {type(base_model).__name__}")
             
-            # Load LoRA adapters
             adapter_dir = find_adapter_directory(lora_adapters_path)
             logger.info(f"Loading LoRA adapters from: {adapter_dir}")
             model = PeftModel.from_pretrained(base_model, adapter_dir)
@@ -166,11 +160,9 @@ implementation:
             logger.info(f"Device: {model.device}")
             logger.info("=" * 70)
             
-            # Parse test prompts
             test_prompts = parse_test_prompts(test_prompts_str)
             logger.info(f"Number of test prompts: {len(test_prompts)}")
             
-            # Generate responses
             results = []
             total_tokens = 0
             total_time = 0
@@ -189,10 +181,10 @@ implementation:
                     else:
                         logger.info(f"Prompt: {prompt}")
                     
-                    # Format prompt
-                    formatted_prompt = f"User: {prompt}\nAssistant:"
+                    user_prefix = "User: "
+                    assistant_prefix = "\nAssistant:"
+                    formatted_prompt = user_prefix + prompt + assistant_prefix
                     
-                    # Tokenize
                     inputs = tokenizer(
                         formatted_prompt,
                         return_tensors="pt",
@@ -201,7 +193,6 @@ implementation:
                     )
                     inputs = {k: v.to(model.device) for k, v in inputs.items()}
                     
-                    # Generate
                     start_time = time.time()
                     with torch.no_grad():
                         outputs = model.generate(
@@ -216,23 +207,22 @@ implementation:
                         )
                     inference_time = time.time() - start_time
                     
-                    # Decode
                     full_response = tokenizer.decode(outputs[0], skip_special_tokens=True)
                     
-                    # Extract generated response
                     if "Assistant:" in full_response:
                         response = full_response.split("Assistant:")[-1].strip()
                     else:
                         response = full_response[len(formatted_prompt):].strip()
                     
-                    # Calculate tokens
                     num_tokens = len(outputs[0]) - len(inputs['input_ids'][0])
                     tokens_per_sec = num_tokens / inference_time if inference_time > 0 else 0
                     
-                    logger.info(f"Response: {response[:100]}..." if len(response) > 100 else f"Response: {response}")
+                    if len(response) > 100:
+                        logger.info(f"Response: {response[:100]}...")
+                    else:
+                        logger.info(f"Response: {response}")
                     logger.info(f"Time: {inference_time:.2f}s | Tokens: {num_tokens} | Speed: {tokens_per_sec:.2f} tok/s")
                     
-                    # Store result
                     result = {
                         "prompt_id": idx,
                         "prompt": prompt,
@@ -257,7 +247,6 @@ implementation:
                         "tokens_per_second": 0
                     })
             
-            # Save predictions
             predictions_output = {
                 "model": model_name_path,
                 "num_prompts": len(test_prompts),
@@ -272,7 +261,6 @@ implementation:
             logger.info("Inference Complete!")
             logger.info(f"Predictions saved to: {predictions_path}")
             
-            # Calculate and save metrics
             avg_time = total_time / len(test_prompts) if test_prompts else 0
             avg_tokens = total_tokens / len(test_prompts) if test_prompts else 0
             avg_speed = total_tokens / total_time if total_time > 0 else 0
