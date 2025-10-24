@@ -1,6 +1,5 @@
 name: Generic LoRA Inference
 description: Performs inference using fine-tuned LoRA adapters on any base model. Automatically detects model configuration and generates responses for given prompts.
-
 inputs:
   - {name: base_model, type: String, description: 'Base model name (must match the model used during training)'}
   - {name: lora_adapters, type: Model, description: 'Path to LoRA adapters from Generic LoRA Fine-tuning component'}
@@ -11,15 +10,12 @@ inputs:
   - {name: top_k, type: Integer, description: 'Top-k sampling parameter', default: '50'}
   - {name: repetition_penalty, type: Float, description: 'Penalty for repetition', default: '1.1'}
   - {name: hf_token, type: String, description: 'Hugging Face access token for gated models', default: ''}
-
 outputs:
   - {name: inference_output, type: String, description: 'Generated response text'}
   - {name: inference_metadata, type: Data, description: 'Metadata about the inference run'}
-
 metadata:
   annotations:
     author: Generic LoRA Inference Component
-
 implementation:
   container:
     image: nikhilv215/nesy-factory:v22
