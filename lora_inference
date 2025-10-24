@@ -296,3 +296,4 @@ implementation:
       - {outputPath: inference_output}
       - --inference_metadata
       - {outputPath: inference_metadata}
+
