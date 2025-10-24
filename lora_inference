@@ -79,7 +79,7 @@ implementation:
                     return token_str if token_str and token_str != "None" else None
             
             def find_adapter_directory(base_path):
-                """Auto-detect adapter directory"""
+                # Auto-detect adapter directory
                 possible_paths = [
                     base_path,
                     os.path.join(base_path, "adapter"),
@@ -97,7 +97,7 @@ implementation:
                 return base_path
             
             def parse_test_prompts(prompts_str):
-                """Parse test prompts from string (JSON array or single prompt)"""
+                # Parse test prompts from string (JSON array or single prompt)
                 try:
                     # Try parsing as JSON array
                     prompts = json.loads(prompts_str)
