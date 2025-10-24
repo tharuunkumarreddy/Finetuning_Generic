@@ -181,8 +181,13 @@ implementation:
             
             for idx, prompt in enumerate(test_prompts, 1):
                 try:
-                    logger.info(f"\n[{idx}/{len(test_prompts)}] Processing prompt...")
-                    logger.info(f"Prompt: {prompt[:100]}..." if len(prompt) > 100 else f"Prompt: {prompt}")
+                    logger.info("")
+                    prompt_num = f"[{idx}/{len(test_prompts)}]"
+                    logger.info(f"{prompt_num} Processing prompt...")
+                    if len(prompt) > 100:
+                        logger.info(f"Prompt: {prompt[:100]}...")
+                    else:
+                        logger.info(f"Prompt: {prompt}")
                     
                     # Format prompt
                     formatted_prompt = f"User: {prompt}\nAssistant:"
@@ -262,7 +267,8 @@ implementation:
             with open(predictions_path, 'w') as f:
                 json.dump(predictions_output, f, indent=2)
             
-            logger.info("\n" + "=" * 70)
+            logger.info("")
+            logger.info("=" * 70)
             logger.info("Inference Complete!")
             logger.info(f"Predictions saved to: {predictions_path}")
             
@@ -291,7 +297,8 @@ implementation:
                 json.dump(metrics, f, indent=2)
             
             logger.info(f"Metrics saved to: {metrics_path}")
-            logger.info("\nSummary:")
+            logger.info("")
+            logger.info("Summary:")
             logger.info(f"  - Total Prompts: {len(test_prompts)}")
             logger.info(f"  - Avg Time/Prompt: {avg_time:.2f}s")
             logger.info(f"  - Avg Tokens/Prompt: {avg_tokens:.1f}")
