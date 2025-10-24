@@ -175,7 +175,8 @@ implementation:
             total_tokens = 0
             total_time = 0
             
-            logger.info("\nStarting inference...")
+            logger.info("")
+            logger.info("Starting inference...")
             logger.info("-" * 70)
             
             for idx, prompt in enumerate(test_prompts, 1):
