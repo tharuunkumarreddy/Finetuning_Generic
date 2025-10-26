@@ -56,17 +56,23 @@ implementation:
         args = parser.parse_args()
 
         def validate_and_clean_url(url):
+            """Remove all whitespace from URL and validate format"""
             original_url = url
-            url = url.strip()
-            parts = url.split()
-            if len(parts) > 1:
-                print('WARNING: URL contains whitespace characters, attempting to fix...')
+            # Remove ALL whitespace (spaces, newlines, tabs, carriage returns)
+            url = ''.join(url.split())
+            
+            if url != original_url:
+                print('WARNING: URL contained whitespace characters, cleaned')
                 print('Original URL length: ' + str(len(original_url)))
-                print('URL parts count: ' + str(len(parts)))
-                url = ''.join(parts)
-                print('Cleaned URL: ' + url)
+                print('Cleaned URL length: ' + str(len(url)))
+                # Show the problematic characters
+                whitespace_chars = [c for c in original_url if c in ' \n\r\t']
+                if whitespace_chars:
+                    print('Removed whitespace characters: ' + repr(whitespace_chars))
+            
             if not url.startswith(('http://', 'https://')):
                 raise ValueError('URL must start with http:// or https://')
+            
             return url
 
         def detect_archive_format(file_path):
@@ -232,7 +238,7 @@ implementation:
             print('Archive CDN Downloader & Extractor')
             print('=' * 70)
             print('')
-            print('Validating input URLs...')
+            print('Validating and cleaning input URLs...')
             args.lora_adapter_archive_cdn_url = validate_and_clean_url(args.lora_adapter_archive_cdn_url)
             args.dataset_archive_cdn_url = validate_and_clean_url(args.dataset_archive_cdn_url)
             print('URLs validated successfully')
