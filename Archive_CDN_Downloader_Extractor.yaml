@@ -67,7 +67,7 @@ implementation:
                         magic_bytes = f.read(4)
                         if magic_bytes.startswith(b'PK'):
                             return 'zip'
-                        elif magic_bytes.startswith(b'\x1f\x8b'):
+                        elif magic_bytes[0:2] == bytes([0x1f, 0x8b]):
                             return 'tar.gz'
                 except Exception:
                     pass
