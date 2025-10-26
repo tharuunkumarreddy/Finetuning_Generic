@@ -25,7 +25,7 @@ outputs:
 
 implementation:
   container:
-    image: python:3.9-slim
+    image: nikhilv215/nesy-factory:v22
     command:
       - sh
       - -c
@@ -341,3 +341,4 @@ implementation:
       - {outputPath: schema_json}
       - --extraction_metadata
       - {outputPath: extraction_metadata}
+
