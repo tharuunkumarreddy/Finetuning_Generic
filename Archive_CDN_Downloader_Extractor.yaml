@@ -56,11 +56,12 @@ implementation:
         args = parser.parse_args()
 
         def validate_and_clean_url(url):
+            original_url = url
             url = url.strip()
-            if ' ' in url:
-                print('WARNING: URL contains spaces, attempting to fix...')
-                print('Original URL: ' + url)
-                url = url.replace(' ', '')
+            if any(c in url for c in [' ', '\n', '\r', '\t']):
+                print('WARNING: URL contains whitespace characters, attempting to fix...')
+                print('Original URL: ' + repr(original_url))
+                url = ''.join(url.split())
                 print('Cleaned URL: ' + url)
             if not url.startswith(('http://', 'https://')):
                 raise ValueError('URL must start with http:// or https://')
