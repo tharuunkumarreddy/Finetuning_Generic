@@ -60,7 +60,7 @@ implementation:
             print('DEBUG: Raw URL received (repr): ' + repr(url))
             print('DEBUG: Raw URL length: ' + str(len(url)))
             original_url = url
-            url = re.sub(r'\s+', '', url)
+            url = url.replace('\n', '').replace('\r', '').replace('\t', '').replace(' ', '')
             print('DEBUG: Cleaned URL (repr): ' + repr(url))
             print('DEBUG: Cleaned URL length: ' + str(len(url)))
             if url != original_url:
