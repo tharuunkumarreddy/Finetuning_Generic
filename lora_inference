@@ -177,10 +177,15 @@ implementation:
                 newline = "\n"
                 formatted_prompt = user_prefix + prompt + newline + assistant_prefix
                 
-                inputs = self.tokenizer(formatted_prompt, return_tensors="pt", truncation=True, max_length=512)
+                inputs = self.tokenizer(
+                    formatted_prompt,
+                    return_tensors='pt',
+                    truncation=True,
+                    max_length=512
+                )
                 
-                input_ids = inputs["input_ids"].to(self.model.device)
-                attention_mask = inputs["attention_mask"].to(self.model.device)
+                input_ids = inputs['input_ids'].to(self.model.device)
+                attention_mask = inputs['attention_mask'].to(self.model.device)
                 
                 with torch.no_grad():
                     outputs = self.model.generate(
