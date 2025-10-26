@@ -25,12 +25,13 @@ outputs:
 
 implementation:
   container:
-    image: nikhilv215/nesy-factory:v22
+    image: python:3.9-slim
     command:
       - sh
       - -c
       - |
         apt-get update && apt-get install -y curl
+        pip install --no-cache-dir requests
         exec "$0" "$@"
       - python3
       - -u
@@ -54,6 +55,17 @@ implementation:
         parser.add_argument('--extraction_metadata', type=str, required=True)
         args = parser.parse_args()
 
+        def validate_and_clean_url(url):
+            url = url.strip()
+            if ' ' in url:
+                print('WARNING: URL contains spaces, attempting to fix...')
+                print('Original URL: ' + url)
+                url = url.replace(' ', '')
+                print('Cleaned URL: ' + url)
+            if not url.startswith(('http://', 'https://')):
+                raise ValueError('URL must start with http:// or https://')
+            return url
+
         def detect_archive_format(file_path):
             if file_path.endswith('.tar.gz'):
                 return 'tar.gz'
@@ -76,7 +88,7 @@ implementation:
         def download_archive(cdn_url, output_path):
             print('Downloading archive from: ' + cdn_url)
             try:
-                response = requests.get(cdn_url, stream=True)
+                response = requests.get(cdn_url, stream=True, timeout=300)
                 response.raise_for_status()
                 os.makedirs(os.path.dirname(output_path), exist_ok=True)
                 total_size = int(response.headers.get('content-length', 0))
@@ -93,6 +105,26 @@ implementation:
                 size_mb = file_size / 1024 / 1024
                 print('Download complete! File size: ' + '{:.2f}'.format(size_mb) + ' MB')
                 return file_size
+            except requests.exceptions.HTTPError as e:
+                print('HTTP Error occurred!')
+                print('  Status Code: ' + str(e.response.status_code))
+                print('  Reason: ' + str(e.response.reason))
+                print('  URL: ' + cdn_url)
+                if e.response.status_code == 500:
+                    print('  Suggestion: The server encountered an internal error. Check if:')
+                    print('    - The URL is correct and properly formatted')
+                    print('    - The file exists on the CDN')
+                    print('    - The CDN server is accessible')
+                raise
+            except requests.exceptions.ConnectionError as e:
+                print('Connection Error: Unable to reach the CDN server')
+                print('  URL: ' + cdn_url)
+                print('  Error: ' + str(e))
+                raise
+            except requests.exceptions.Timeout as e:
+                print('Timeout Error: Request took too long (timeout: 300s)')
+                print('  URL: ' + cdn_url)
+                raise
             except Exception as e:
                 print('Download failed: ' + str(e))
                 raise
@@ -196,6 +228,11 @@ implementation:
             print('=' * 70)
             print('Archive CDN Downloader & Extractor')
             print('=' * 70)
+            print('')
+            print('Validating input URLs...')
+            args.lora_adapter_archive_cdn_url = validate_and_clean_url(args.lora_adapter_archive_cdn_url)
+            args.dataset_archive_cdn_url = validate_and_clean_url(args.dataset_archive_cdn_url)
+            print('URLs validated successfully')
             print('')
             print('=' * 70)
             print('Processing LoRA Adapter Archive')
@@ -341,4 +378,3 @@ implementation:
       - {outputPath: schema_json}
       - --extraction_metadata
       - {outputPath: extraction_metadata}
-
