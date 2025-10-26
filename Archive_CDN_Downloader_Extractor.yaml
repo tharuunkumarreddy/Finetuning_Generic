@@ -56,23 +56,14 @@ implementation:
         args = parser.parse_args()
 
         def validate_and_clean_url(url):
-            # Remove all whitespace from URL and validate format
             original_url = url
-            # Remove ALL whitespace (spaces, newlines, tabs, carriage returns)
             url = ''.join(url.split())
-            
             if url != original_url:
-                print('WARNING: URL contained whitespace characters, cleaned')
-                print('Original URL length: ' + str(len(original_url)))
-                print('Cleaned URL length: ' + str(len(url)))
-                # Show the problematic characters
-                whitespace_chars = [c for c in original_url if c in ' \n\r\t']
-                if whitespace_chars:
-                    print('Removed whitespace characters: ' + repr(whitespace_chars))
-            
+                print('WARNING: URL contained whitespace, cleaned')
+                print('Original length: ' + str(len(original_url)))
+                print('Cleaned length: ' + str(len(url)))
             if not url.startswith(('http://', 'https://')):
                 raise ValueError('URL must start with http:// or https://')
-            
             return url
 
         def detect_archive_format(file_path):
