@@ -57,7 +57,7 @@ implementation:
 
         def validate_and_clean_url(url):
             original_url = url
-            url = ''.join(url.split())
+            url = url.replace('\n', '').replace('\r', '').replace('\t', '').replace(' ', '')
             if url != original_url:
                 print('WARNING: URL contained whitespace, cleaned')
                 print('Original length: ' + str(len(original_url)))
