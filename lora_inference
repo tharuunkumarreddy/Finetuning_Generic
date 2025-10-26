@@ -53,62 +53,51 @@ implementation:
             token_str = str(token_arg).strip()
             if os.path.exists(token_str):
                 try:
-                    with open(token_str, "r") as f:
-                        content = f.read().strip()
-                        return content if content else None
+                    f = open(token_str, "r")
+                    content = f.read().strip()
+                    f.close()
+                    return content if content else None
                 except Exception as e:
                     logger.error("Failed to read token file: %s", e)
                     return None
             else:
-                return token_str if token_str and token_str != "None" else None
+                nonestr = "None"
+                return token_str if token_str and token_str != nonestr else None
         
         class UniversalLoRAInference:
             def __init__(self, base_model_name, adapter_path, hf_token=None, device="auto"):
                 self.device = device
                 self.base_model_name = base_model_name
                 self.adapter_path = adapter_path
-                
-                logger.info("=" * 70)
+                sepline = "=" * 70
+                logger.info(sepline)
                 logger.info("Universal LoRA Inference Engine")
-                logger.info("=" * 70)
-                
+                logger.info(sepline)
                 self.config = self._load_training_config()
                 self.schema = self._load_schema()
-                
                 logger.info("Loading tokenizer: %s", base_model_name)
-                tokenizer_kwargs = {"trust_remote_code": True}
+                tokenizer_kwargs = {}
+                tokenizer_kwargs["trust_remote_code"] = True
                 if hf_token:
                     tokenizer_kwargs["token"] = hf_token
-                
-                self.tokenizer = AutoTokenizer.from_pretrained(
-                    base_model_name, **tokenizer_kwargs
-                )
-                
+                self.tokenizer = AutoTokenizer.from_pretrained(base_model_name, **tokenizer_kwargs)
                 if self.tokenizer.pad_token is None:
                     self.tokenizer.pad_token = self.tokenizer.eos_token
-                
                 logger.info("Loading base model: %s", base_model_name)
-                model_kwargs = {
-                    "torch_dtype": torch.float32,
-                    "device_map": device,
-                    "trust_remote_code": True,
-                    "low_cpu_mem_usage": True
-                }
+                model_kwargs = {}
+                model_kwargs["torch_dtype"] = torch.float32
+                model_kwargs["device_map"] = device
+                model_kwargs["trust_remote_code"] = True
+                model_kwargs["low_cpu_mem_usage"] = True
                 if hf_token:
                     model_kwargs["token"] = hf_token
-                
-                base_model = AutoModelForCausalLM.from_pretrained(
-                    base_model_name, **model_kwargs
-                )
-                
+                base_model = AutoModelForCausalLM.from_pretrained(base_model_name, **model_kwargs)
                 adapter_dir = self._find_adapter_directory()
                 logger.info("Loading LoRA adapters: %s", adapter_dir)
-                
                 self.model = PeftModel.from_pretrained(base_model, adapter_dir)
                 self.model.eval()
-                
                 self._display_info()
-                logger.info("=" * 70)
+                logger.info(sepline)
             
             def _find_adapter_directory(self):
                 possible_paths = [
@@ -117,12 +106,10 @@ implementation:
                     os.path.join(self.adapter_path, "data", "adapter"),
                     os.path.join(self.adapter_path, "data")
                 ]
-                
                 for path in possible_paths:
                     adapter_config = os.path.join(path, "adapter_config.json")
                     if os.path.exists(adapter_config):
                         return path
-                
                 return self.adapter_path
             
             def _load_training_config(self):
@@ -130,11 +117,12 @@ implementation:
                     os.path.join(self.adapter_path, "run_config.json"),
                     os.path.join(self.adapter_path, "data", "run_config.json")
                 ]
-                
                 for path in config_paths:
                     if os.path.exists(path):
-                        with open(path, "r") as f:
-                            return json.load(f)
+                        f = open(path, "r")
+                        config = json.load(f)
+                        f.close()
+                        return config
                 return {}
             
             def _load_schema(self):
@@ -142,27 +130,27 @@ implementation:
                     os.path.join(self.adapter_path, "schema.json"),
                     os.path.join(self.adapter_path, "data", "schema.json")
                 ]
-                
                 for path in schema_paths:
                     if os.path.exists(path):
-                        with open(path, "r") as f:
-                            return json.load(f)
+                        f = open(path, "r")
+                        schema = json.load(f)
+                        f.close()
+                        return schema
                 return {}
             
             def _display_info(self):
-                logger.info("-" * 70)
+                sepline = "-" * 70
+                logger.info(sepline)
                 logger.info("MODEL INFORMATION")
-                logger.info("-" * 70)
+                logger.info(sepline)
                 logger.info("Base Model: %s", self.base_model_name)
                 logger.info("Device: %s", self.model.device)
-                
                 if self.config:
                     logger.info("Training Config:")
                     logger.info("  - Epochs: %s", self.config.get("epochs", "N/A"))
                     logger.info("  - Learning Rate: %s", self.config.get("learning_rate", "N/A"))
                     logger.info("  - LoRA Rank (r): %s", self.config.get("lora_r", "N/A"))
                     logger.info("  - Training Samples: %s", self.config.get("num_train_samples", "N/A"))
-                
                 if self.schema:
                     logger.info("Dataset Info:")
                     logger.info("  - Source: %s", self.schema.get("dataset_uri", "N/A"))
@@ -172,15 +160,12 @@ implementation:
             def generate(self, prompt, max_new_tokens=150, temperature=0.7, top_p=0.9, top_k=50, do_sample=True, repetition_penalty=1.1):
                 user_prefix = "User: "
                 assistant_prefix = "Assistant:"
-                newline = "\n"
-                formatted_prompt = user_prefix + prompt + newline + assistant_prefix
-                
-                tensor_type = "pt"
-                inputs = self.tokenizer(formatted_prompt, return_tensors=tensor_type, truncation=True, max_length=512)
-                
+                newline_char = "\n"
+                formatted_prompt = user_prefix + prompt + newline_char + assistant_prefix
+                pt_str = "pt"
+                inputs = self.tokenizer(formatted_prompt, return_tensors=pt_str, truncation=True, max_length=512)
                 input_ids = inputs["input_ids"].to(self.model.device)
                 attention_mask = inputs["attention_mask"].to(self.model.device)
-                
                 with torch.no_grad():
                     outputs = self.model.generate(
                         input_ids=input_ids,
@@ -194,16 +179,13 @@ implementation:
                         pad_token_id=self.tokenizer.pad_token_id,
                         eos_token_id=self.tokenizer.eos_token_id
                     )
-                
                 full_response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-                
                 if assistant_prefix in full_response:
                     parts = full_response.split(assistant_prefix)
                     response = parts[-1].strip()
                 else:
                     prompt_len = len(formatted_prompt)
                     response = full_response[prompt_len:].strip()
-                
                 return response
             
             def batch_generate(self, prompts, **kwargs):
@@ -228,10 +210,8 @@ implementation:
         parser.add_argument("--hf_token", default=None)
         parser.add_argument("--inference_results", required=True)
         args = parser.parse_args()
-        
         hf_token = get_token_value(args.hf_token)
         logger.info("HF Token present: %s", bool(hf_token))
-        
         if hf_token:
             from huggingface_hub import login
             try:
@@ -239,32 +219,26 @@ implementation:
                 logger.info("Logged in to Hugging Face Hub")
             except Exception as e:
                 logger.error("Failed to login to HF: %s", e)
-        
         ensure_directory_exists(args.inference_results)
-        
         if not os.path.exists(args.lora_adapters):
             raise ValueError("LoRA adapters path not found: " + args.lora_adapters)
-        
         engine = UniversalLoRAInference(
             base_model_name=args.base_model,
             adapter_path=args.lora_adapters,
             hf_token=hf_token,
             device="auto"
         )
-        
-        results = {
-            "base_model": args.base_model,
-            "adapter_path": args.lora_adapters,
-            "generation_config": {
-                "max_tokens": args.max_tokens,
-                "temperature": args.temperature,
-                "top_p": args.top_p,
-                "top_k": args.top_k,
-                "repetition_penalty": args.repetition_penalty
-            },
-            "inferences": []
+        results = {}
+        results["base_model"] = args.base_model
+        results["adapter_path"] = args.lora_adapters
+        results["generation_config"] = {
+            "max_tokens": args.max_tokens,
+            "temperature": args.temperature,
+            "top_p": args.top_p,
+            "top_k": args.top_k,
+            "repetition_penalty": args.repetition_penalty
         }
-        
+        results["inferences"] = []
         if args.batch_prompts and args.batch_prompts.strip():
             try:
                 prompts = json.loads(args.batch_prompts)
@@ -274,7 +248,6 @@ implementation:
             except json.JSONDecodeError:
                 prompts = [args.batch_prompts]
                 logger.info("Single prompt from batch_prompts parameter")
-            
             responses = engine.batch_generate(
                 prompts,
                 max_new_tokens=args.max_tokens,
@@ -283,20 +256,18 @@ implementation:
                 top_k=args.top_k,
                 repetition_penalty=args.repetition_penalty
             )
-            
+            sepline = "-" * 70
             for prompt, response in zip(prompts, responses):
-                results["inferences"].append({
-                    "prompt": prompt,
-                    "response": response
-                })
+                inference_item = {}
+                inference_item["prompt"] = prompt
+                inference_item["response"] = response
+                results["inferences"].append(inference_item)
                 logger.info("Prompt: %s", prompt)
                 logger.info("Response: %s", response)
-                logger.info("-" * 70)
-        
+                logger.info(sepline)
         elif args.prompt and args.prompt.strip():
             logger.info("Single inference mode")
             logger.info("Prompt: %s", args.prompt)
-            
             response = engine.generate(
                 args.prompt,
                 max_new_tokens=args.max_tokens,
@@ -305,15 +276,13 @@ implementation:
                 top_k=args.top_k,
                 repetition_penalty=args.repetition_penalty
             )
-            
-            results["inferences"].append({
-                "prompt": args.prompt,
-                "response": response
-            })
-            
+            inference_item = {}
+            inference_item["prompt"] = args.prompt
+            inference_item["response"] = response
+            results["inferences"].append(inference_item)
+            sepline = "-" * 70
             logger.info("Response: %s", response)
-            logger.info("-" * 70)
-        
+            logger.info(sepline)
         else:
             logger.info("Demo mode with sample prompts")
             demo_prompts = [
@@ -321,7 +290,6 @@ implementation:
                 "Explain artificial intelligence.",
                 "How does deep learning work?"
             ]
-            
             responses = engine.batch_generate(
                 demo_prompts,
                 max_new_tokens=args.max_tokens,
@@ -330,24 +298,24 @@ implementation:
                 top_k=args.top_k,
                 repetition_penalty=args.repetition_penalty
             )
-            
+            sepline = "-" * 70
             for prompt, response in zip(demo_prompts, responses):
-                results["inferences"].append({
-                    "prompt": prompt,
-                    "response": response
-                })
+                inference_item = {}
+                inference_item["prompt"] = prompt
+                inference_item["response"] = response
+                results["inferences"].append(inference_item)
                 logger.info("Prompt: %s", prompt)
                 logger.info("Response: %s", response)
-                logger.info("-" * 70)
-        
-        with open(args.inference_results, "w") as f:
-            json.dump(results, f, indent=2)
-        
-        logger.info("=" * 70)
+                logger.info(sepline)
+        f = open(args.inference_results, "w")
+        json.dump(results, f, indent=2)
+        f.close()
+        final_sepline = "=" * 70
+        logger.info(final_sepline)
         logger.info("Inference complete!")
         logger.info("Results saved to: %s", args.inference_results)
         logger.info("Total inferences: %d", len(results["inferences"]))
-        logger.info("=" * 70)
+        logger.info(final_sepline)
     args:
       - --base_model
       - {inputValue: base_model}
