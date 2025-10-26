@@ -57,15 +57,19 @@ implementation:
         args = parser.parse_args()
 
         def validate_and_clean_url(url):
+            print('DEBUG: Raw URL received (repr): ' + repr(url))
+            print('DEBUG: Raw URL length: ' + str(len(url)))
             original_url = url
             url = re.sub(r'\s+', '', url)
+            print('DEBUG: Cleaned URL (repr): ' + repr(url))
+            print('DEBUG: Cleaned URL length: ' + str(len(url)))
             if url != original_url:
                 print('WARNING: URL contained whitespace, cleaned')
                 print('Original length: ' + str(len(original_url)))
                 print('Cleaned length: ' + str(len(url)))
-                print('Cleaned URL: ' + url)
             if not url.startswith(('http://', 'https://')):
                 raise ValueError('URL must start with http:// or https://')
+            print('DEBUG: Final validated URL: ' + url)
             return url
 
         def detect_archive_format(file_path):
@@ -88,6 +92,7 @@ implementation:
                 return 'tar'
 
         def download_archive(cdn_url, output_path):
+            print('DEBUG: download_archive called with URL (repr): ' + repr(cdn_url))
             print('Downloading archive from: ' + cdn_url)
             try:
                 response = requests.get(cdn_url, stream=True, timeout=300)
@@ -112,7 +117,7 @@ implementation:
                 print('HTTP Error occurred!')
                 print('  Status Code: ' + str(e.response.status_code))
                 print('  Reason: ' + str(e.response.reason))
-                print('  URL: ' + cdn_url)
+                print('  URL (repr): ' + repr(cdn_url))
                 if e.response.status_code == 500:
                     print('  Suggestion: The server encountered an internal error. Check if:')
                     print('    - The URL is correct and properly formatted')
@@ -233,7 +238,10 @@ implementation:
             print('=' * 70)
             print('')
             print('Validating and cleaning input URLs...')
+            print('LoRA URL received:')
             lora_cleaned_url = validate_and_clean_url(args.lora_adapter_archive_cdn_url)
+            print('')
+            print('Dataset URL received:')
             dataset_cleaned_url = validate_and_clean_url(args.dataset_archive_cdn_url)
             print('URLs validated successfully')
             print('')
