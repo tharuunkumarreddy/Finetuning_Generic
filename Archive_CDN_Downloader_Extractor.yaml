@@ -39,6 +39,7 @@ implementation:
       - |
         import argparse
         import os
+        import re
         import tarfile
         import zipfile
         import requests
@@ -57,11 +58,12 @@ implementation:
 
         def validate_and_clean_url(url):
             original_url = url
-            url = ''.join(url.split())
+            url = re.sub(r'\s+', '', url)
             if url != original_url:
                 print('WARNING: URL contained whitespace, cleaned')
                 print('Original length: ' + str(len(original_url)))
                 print('Cleaned length: ' + str(len(url)))
+                print('Cleaned URL: ' + url)
             if not url.startswith(('http://', 'https://')):
                 raise ValueError('URL must start with http:// or https://')
             return url
@@ -100,7 +102,8 @@ implementation:
                             downloaded_size += len(chunk)
                             if total_size > 0:
                                 percent = (downloaded_size / total_size) * 100
-                                print('  Downloaded: ' + '{:.1f}'.format(percent) + '%')
+                                if downloaded_size % (1024 * 1024 * 10) < 8192:
+                                    print('  Downloaded: ' + '{:.1f}'.format(percent) + '%')
                 file_size = os.path.getsize(output_path)
                 size_mb = file_size / 1024 / 1024
                 print('Download complete! File size: ' + '{:.2f}'.format(size_mb) + ' MB')
@@ -230,8 +233,8 @@ implementation:
             print('=' * 70)
             print('')
             print('Validating and cleaning input URLs...')
-            args.lora_adapter_archive_cdn_url = validate_and_clean_url(args.lora_adapter_archive_cdn_url)
-            args.dataset_archive_cdn_url = validate_and_clean_url(args.dataset_archive_cdn_url)
+            lora_cleaned_url = validate_and_clean_url(args.lora_adapter_archive_cdn_url)
+            dataset_cleaned_url = validate_and_clean_url(args.dataset_archive_cdn_url)
             print('URLs validated successfully')
             print('')
             print('=' * 70)
@@ -240,7 +243,7 @@ implementation:
             lora_archive_filename = 'lora_adapter_archive.tmp'
             lora_archive_path = os.path.join('/tmp', lora_archive_filename)
             lora_extract_temp = os.path.join('/tmp', 'lora_extract_temp')
-            lora_download_size = download_archive(args.lora_adapter_archive_cdn_url, lora_archive_path)
+            lora_download_size = download_archive(lora_cleaned_url, lora_archive_path)
             lora_format = detect_archive_format(lora_archive_path)
             print('Detected format: ' + lora_format)
             extract_archive(lora_archive_path, lora_extract_temp, lora_format)
@@ -261,7 +264,7 @@ implementation:
             dataset_archive_filename = 'dataset_archive.tmp'
             dataset_archive_path = os.path.join('/tmp', dataset_archive_filename)
             dataset_extract_temp = os.path.join('/tmp', 'dataset_extract_temp')
-            dataset_download_size = download_archive(args.dataset_archive_cdn_url, dataset_archive_path)
+            dataset_download_size = download_archive(dataset_cleaned_url, dataset_archive_path)
             dataset_format = detect_archive_format(dataset_archive_path)
             print('Detected format: ' + dataset_format)
             extract_archive(dataset_archive_path, dataset_extract_temp, dataset_format)
@@ -299,7 +302,7 @@ implementation:
             metadata = {
                 'extraction_timestamp': datetime.utcnow().isoformat(),
                 'lora_adapters': {
-                    'cdn_url': args.lora_adapter_archive_cdn_url,
+                    'cdn_url': lora_cleaned_url,
                     'compression_format': lora_format,
                     'download_size_bytes': lora_download_size,
                     'extracted_size_bytes': lora_adapter_size,
@@ -315,7 +318,7 @@ implementation:
                     }
                 },
                 'processed_dataset': {
-                    'cdn_url': args.dataset_archive_cdn_url,
+                    'cdn_url': dataset_cleaned_url,
                     'compression_format': dataset_format,
                     'download_size_bytes': dataset_download_size,
                     'extracted_size_bytes': dataset_size,
