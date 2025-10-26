@@ -56,7 +56,7 @@ implementation:
         args = parser.parse_args()
 
         def validate_and_clean_url(url):
-            """Remove all whitespace from URL and validate format"""
+            # Remove all whitespace from URL and validate format
             original_url = url
             # Remove ALL whitespace (spaces, newlines, tabs, carriage returns)
             url = ''.join(url.split())
