@@ -58,12 +58,12 @@ implementation:
         def validate_and_clean_url(url):
             original_url = url
             url = url.strip()
-            whitespace_chars = ' \n\r\t'
-            has_whitespace = any(c in url for c in whitespace_chars)
-            if has_whitespace:
+            parts = url.split()
+            if len(parts) > 1:
                 print('WARNING: URL contains whitespace characters, attempting to fix...')
-                print('Original URL: ' + repr(original_url))
-                url = ''.join(url.split())
+                print('Original URL length: ' + str(len(original_url)))
+                print('URL parts count: ' + str(len(parts)))
+                url = ''.join(parts)
                 print('Cleaned URL: ' + url)
             if not url.startswith(('http://', 'https://')):
                 raise ValueError('URL must start with http:// or https://')
