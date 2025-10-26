@@ -58,7 +58,9 @@ implementation:
         def validate_and_clean_url(url):
             original_url = url
             url = url.strip()
-            if any(c in url for c in [' ', '\n', '\r', '\t']):
+            whitespace_chars = ' \n\r\t'
+            has_whitespace = any(c in url for c in whitespace_chars)
+            if has_whitespace:
                 print('WARNING: URL contains whitespace characters, attempting to fix...')
                 print('Original URL: ' + repr(original_url))
                 url = ''.join(url.split())
