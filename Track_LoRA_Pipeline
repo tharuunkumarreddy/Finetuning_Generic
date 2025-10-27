@@ -81,7 +81,7 @@ implementation:
                 with open(file_path, 'r') as f:
                     return json.load(f)
             except Exception as e:
-                print(f"Warning: Could not read {file_path}: {e}")
+                print("Warning: Could not read " + str(file_path) + ": " + str(e))
                 return {}
 
         print("=" * 80)
@@ -97,8 +97,8 @@ implementation:
         num_train = dataset_info.get('num_train', 0)
         num_val = dataset_info.get('num_val', 0)
         
-        print("   Dataset: " + str(dataset_source) + " - " + str(dataset_uri))
-        print("   Samples: " + str(num_train) + " train, " + str(num_val) + " validation")
+        print("   Dataset = " + str(dataset_source) + " - " + str(dataset_uri))
+        print("   Samples = " + str(num_train) + " train, " + str(num_val) + " validation")
 
         # 2. Load Training Config (run_config.json)
         print("\n[2/3] Reading training configuration...")
@@ -112,9 +112,9 @@ implementation:
         lora_r = training_config.get('lora_r', 0)
         lora_alpha = training_config.get('lora_alpha', 0)
         
-        print("   Base Model: " + str(base_model))
-        print("   Training: " + str(epochs) + " epochs, batch=" + str(batch_size) + ", lr=" + str(learning_rate))
-        print("   LoRA Config: r=" + str(lora_r) + ", alpha=" + str(lora_alpha))
+        print("   Base Model = " + str(base_model))
+        print("   Training = " + str(epochs) + " epochs, batch=" + str(batch_size) + ", lr=" + str(learning_rate))
+        print("   LoRA Config = r=" + str(lora_r) + ", alpha=" + str(lora_alpha))
 
         # 3. Check Merged Model (optional)
         print("\n[3/3] Checking merged model...")
@@ -124,7 +124,7 @@ implementation:
         if args.merged_model_dir and os.path.exists(args.merged_model_dir):
             merged_model_exists = True
             merged_model_path = args.merged_model_dir
-            print("   Merged model found at: " + str(merged_model_path))
+            print("   Merged model found at = " + str(merged_model_path))
         else:
             print("   Merged model not provided or not found")
 
@@ -193,8 +193,8 @@ implementation:
         # Keys that should be stored as float type
         float_keys = ["learning_rate"]
 
-        print(f"\n[Schema Update] Execution ID: {args.execution_id}")
-        print(f"[Schema Update] Schema ID: {args.schema_id}")
+        print("\n[Schema Update] Execution ID = " + str(args.execution_id))
+        print("[Schema Update] Schema ID = " + str(args.schema_id))
 
         # Setup HTTP session with retries
         headers = {
@@ -232,7 +232,7 @@ implementation:
             
             if response_data.get("content"):
                 # UPDATE existing row
-                print(f"[Schema Update] Found existing record - UPDATING")
+                print("[Schema Update] Found existing record - UPDATING")
                 
                 patch_requests = []
                 for schema_column, data_key in mapping.items():
@@ -277,17 +277,17 @@ implementation:
                     ]
                 }
                 
-                print(f"[Schema Update] Updating {len(patch_requests)} fields...")
+                print("[Schema Update] Updating " + str(len(patch_requests)) + " fields...")
                 
                 response = http.patch(update_url, headers=headers, data=json.dumps(update_payload), timeout=60)
                 response.raise_for_status()
                 
-                print("[Schema Update] ✓ Successfully updated existing record")
-                status_message = f"Updated existing record for execution_id: {args.execution_id}"
+                print("[Schema Update] Successfully updated existing record")
+                status_message = "Updated existing record for execution_id = " + str(args.execution_id)
                 
             else:
                 # CREATE new row
-                print(f"[Schema Update] No existing record - CREATING NEW")
+                print("[Schema Update] No existing record - CREATING NEW")
                 
                 creation_data = {}
                 for schema_column, data_key in mapping.items():
@@ -324,25 +324,25 @@ implementation:
                     "data": [creation_data]
                 }
 
-                print(f"[Schema Update] Creating record with {len(creation_data)} fields...")
+                print("[Schema Update] Creating record with " + str(len(creation_data)) + " fields...")
                 
                 response = http.post(create_url, headers=headers, data=json.dumps(create_payload), timeout=60)
                 if response.status_code >= 400:
-                    print(f"[Schema Update] ✗ Error: {response.status_code} {response.reason}")
-                    print(f"[Schema Update] Response: {response.text}")
+                    print("[Schema Update] Error: " + str(response.status_code) + " " + str(response.reason))
+                    print("[Schema Update] Response: " + str(response.text))
                 response.raise_for_status()
                 
-                print("[Schema Update] ✓ Successfully created new record")
-                status_message = f"Created new record for execution_id: {args.execution_id}"
+                print("[Schema Update] Successfully created new record")
+                status_message = "Created new record for execution_id = " + str(args.execution_id)
             
-            print(f"[Schema Update] API Response: {response.json()}")
+            print("[Schema Update] API Response: " + str(response.json()))
 
         except requests.exceptions.RequestException as e:
-            error_msg = f"Schema update failed: {str(e)}"
-            print(f"\n[Schema Update] ✗ {error_msg}")
+            error_msg = "Schema update failed - " + str(e)
+            print("\n[Schema Update] " + error_msg)
             if hasattr(e, 'response') and e.response is not None:
-                print(f"[Schema Update] Status: {e.response.status_code}")
-                print(f"[Schema Update] Response: {e.response.text}")
+                print("[Schema Update] Status = " + str(e.response.status_code))
+                print("[Schema Update] Response = " + str(e.response.text))
             status_message = error_msg
 
         # Write status to output file
@@ -353,7 +353,7 @@ implementation:
         print("\n" + "=" * 80)
         print("TRACKING COMPLETE")
         print("=" * 80)
-        print(f"Status: {status_message}")
+        print("Status: " + str(status_message))
         print("=" * 80)
 
     args:
