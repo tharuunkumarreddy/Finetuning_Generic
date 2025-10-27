@@ -30,9 +30,11 @@ implementation:
       - sh
       - -c
       - |
+        set -e
         apt-get update && apt-get install -y curl
         pip install --no-cache-dir requests
-        python3 -u <<'PYTHON_SCRIPT'
+        
+        cat > /tmp/downloader.py << 'PYTHON_SCRIPT_EOF'
         import argparse
         import os
         import re
@@ -374,7 +376,9 @@ implementation:
             print('Error: ' + str(e))
             print('=' * 70)
             raise
-        PYTHON_SCRIPT
+        PYTHON_SCRIPT_EOF
+        
+        python3 -u /tmp/downloader.py "$@"
     args:
       - --lora_adapter_archive_cdn_url
       - {inputValue: lora_adapter_archive_cdn_url}
