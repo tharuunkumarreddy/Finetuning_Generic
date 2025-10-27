@@ -74,7 +74,7 @@ implementation:
                 os.makedirs(directory, exist_ok=True)
 
         def read_json_safe(file_path):
-            """Safely read JSON file, return empty dict if fails"""
+            # Safely read JSON file, return empty dict if fails
             if not os.path.exists(file_path):
                 return {}
             try:
