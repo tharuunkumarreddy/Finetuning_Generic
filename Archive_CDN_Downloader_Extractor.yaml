@@ -59,6 +59,9 @@ implementation:
             print('DEBUG: Raw URL received (repr): ' + repr(url))
             print('DEBUG: Raw URL length: ' + str(len(url)))
             original_url = url
+            # Strip whitespace from beginning and end first
+            url = url.strip()
+            # Then remove all whitespace characters (including newlines, tabs, spaces)
             chars_to_remove = [chr(10), chr(13), chr(9), chr(32)]
             for char in chars_to_remove:
                 url = url.replace(char, '')
