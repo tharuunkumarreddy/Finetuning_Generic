@@ -29,11 +29,18 @@ implementation:
     command:
       - sh
       - -c
-    args:
       - |
         set -e
         apt-get update && apt-get install -y curl
         pip install --no-cache-dir requests
+        
+        # Read arguments and preserve special characters
+        LORA_URL="$1"
+        DATASET_URL="$2"
+        LORA_OUTPUT="$3"
+        DATASET_OUTPUT="$4"
+        SCHEMA_OUTPUT="$5"
+        METADATA_OUTPUT="$6"
         
         cat > /tmp/downloader.py << 'PYTHON_SCRIPT_EOF'
         import argparse
@@ -383,12 +390,13 @@ implementation:
         PYTHON_SCRIPT_EOF
         
         python3 -u /tmp/downloader.py \
-          --lora_adapter_archive_cdn_url "$0" \
-          --dataset_archive_cdn_url "$1" \
-          --lora_adapters "$2" \
-          --processed_dataset "$3" \
-          --schema_json "$4" \
-          --extraction_metadata "$5"
+          --lora_adapter_archive_cdn_url "${LORA_URL}" \
+          --dataset_archive_cdn_url "${DATASET_URL}" \
+          --lora_adapters "${LORA_OUTPUT}" \
+          --processed_dataset "${DATASET_OUTPUT}" \
+          --schema_json "${SCHEMA_OUTPUT}" \
+          --extraction_metadata "${METADATA_OUTPUT}"
+    args:
       - {inputValue: lora_adapter_archive_cdn_url}
       - {inputValue: dataset_archive_cdn_url}
       - {outputPath: lora_adapters}
