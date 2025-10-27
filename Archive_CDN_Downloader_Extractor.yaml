@@ -29,6 +29,7 @@ implementation:
     command:
       - sh
       - -c
+    args:
       - |
         set -e
         apt-get update && apt-get install -y curl
@@ -378,17 +379,16 @@ implementation:
             raise
         PYTHON_SCRIPT_EOF
         
-        python3 -u /tmp/downloader.py "$@"
-    args:
-      - --lora_adapter_archive_cdn_url
+        python3 -u /tmp/downloader.py \
+          --lora_adapter_archive_cdn_url "$0" \
+          --dataset_archive_cdn_url "$1" \
+          --lora_adapters "$2" \
+          --processed_dataset "$3" \
+          --schema_json "$4" \
+          --extraction_metadata "$5"
       - {inputValue: lora_adapter_archive_cdn_url}
-      - --dataset_archive_cdn_url
       - {inputValue: dataset_archive_cdn_url}
-      - --lora_adapters
       - {outputPath: lora_adapters}
-      - --processed_dataset
       - {outputPath: processed_dataset}
-      - --schema_json
       - {outputPath: schema_json}
-      - --extraction_metadata
       - {outputPath: extraction_metadata}
