@@ -191,11 +191,20 @@ implementation:
         http.mount("http://", adapter)
 
         check_url = args.domain + "/pi-entity-instances-service/v3.0/schemas/" + args.schema_id + "/instances/list"
+        
+        # Try to convert execution_id to integer if it's numeric, otherwise keep as string
+        execution_id_value = args.execution_id
+        try:
+            execution_id_value = int(args.execution_id)
+            print("Using integer execution_id = " + str(execution_id_value))
+        except ValueError:
+            print("Using string execution_id = " + str(execution_id_value))
+        
         check_payload = {
             "dbType": "TIDB",
             "ownedOnly": True,
             "filter": {
-                "execution_id": args.execution_id
+                "execution_id": execution_id_value
             }
         }
         
