@@ -46,350 +46,350 @@ implementation:
         echo "DEBUG: Shell received DATASET_URL=$DATASET_URL"
         
         cat > /tmp/downloader.py << 'PYTHON_SCRIPT_EOF'
-import argparse
-import os
-import re
-import tarfile
-import zipfile
-import requests
-import json
-import shutil
-from datetime import datetime
-
-parser = argparse.ArgumentParser(description='Download and extract LoRA adapter and dataset archives from CDN.')
-parser.add_argument('--lora_adapter_archive_cdn_url', type=str, required=True)
-parser.add_argument('--dataset_archive_cdn_url', type=str, required=True)
-parser.add_argument('--lora_adapters', type=str, required=True)
-parser.add_argument('--processed_dataset', type=str, required=True)
-parser.add_argument('--schema_json', type=str, required=True)
-parser.add_argument('--extraction_metadata', type=str, required=True)
-args = parser.parse_args()
-
-def validate_and_clean_url(url):
-    print('DEBUG: Raw URL received (repr): ' + repr(url))
-    print('DEBUG: Raw URL length: ' + str(len(url)))
-    original_url = url
-    # Strip whitespace from beginning and end first
-    url = url.strip()
-    # Then remove all whitespace characters (including newlines, tabs, spaces)
-    chars_to_remove = [chr(10), chr(13), chr(9), chr(32)]
-    for char in chars_to_remove:
-        url = url.replace(char, '')
-    print('DEBUG: Cleaned URL (repr): ' + repr(url))
-    print('DEBUG: Cleaned URL length: ' + str(len(url)))
-    if url != original_url:
-        print('WARNING: URL contained whitespace, cleaned')
-        print('Original length: ' + str(len(original_url)))
-        print('Cleaned length: ' + str(len(url)))
-    if not url.startswith(('http://', 'https://')):
-        raise ValueError('URL must start with http:// or https://')
-    print('DEBUG: Final validated URL: ' + url)
-    return url
-
-def detect_archive_format(file_path):
-    if file_path.endswith('.tar.gz'):
-        return 'tar.gz'
-    elif file_path.endswith('.tar'):
-        return 'tar'
-    elif file_path.endswith('.zip'):
-        return 'zip'
-    else:
+        import argparse
+        import os
+        import re
+        import tarfile
+        import zipfile
+        import requests
+        import json
+        import shutil
+        from datetime import datetime
+        
+        parser = argparse.ArgumentParser(description='Download and extract LoRA adapter and dataset archives from CDN.')
+        parser.add_argument('--lora_adapter_archive_cdn_url', type=str, required=True)
+        parser.add_argument('--dataset_archive_cdn_url', type=str, required=True)
+        parser.add_argument('--lora_adapters', type=str, required=True)
+        parser.add_argument('--processed_dataset', type=str, required=True)
+        parser.add_argument('--schema_json', type=str, required=True)
+        parser.add_argument('--extraction_metadata', type=str, required=True)
+        args = parser.parse_args()
+        
+        def validate_and_clean_url(url):
+            print('DEBUG: Raw URL received (repr): ' + repr(url))
+            print('DEBUG: Raw URL length: ' + str(len(url)))
+            original_url = url
+            # Strip whitespace from beginning and end first
+            url = url.strip()
+            # Then remove all whitespace characters (including newlines, tabs, spaces)
+            chars_to_remove = [chr(10), chr(13), chr(9), chr(32)]
+            for char in chars_to_remove:
+                url = url.replace(char, '')
+            print('DEBUG: Cleaned URL (repr): ' + repr(url))
+            print('DEBUG: Cleaned URL length: ' + str(len(url)))
+            if url != original_url:
+                print('WARNING: URL contained whitespace, cleaned')
+                print('Original length: ' + str(len(original_url)))
+                print('Cleaned length: ' + str(len(url)))
+            if not url.startswith(('http://', 'https://')):
+                raise ValueError('URL must start with http:// or https://')
+            print('DEBUG: Final validated URL: ' + url)
+            return url
+        
+        def detect_archive_format(file_path):
+            if file_path.endswith('.tar.gz'):
+                return 'tar.gz'
+            elif file_path.endswith('.tar'):
+                return 'tar'
+            elif file_path.endswith('.zip'):
+                return 'zip'
+            else:
+                try:
+                    with open(file_path, 'rb') as f:
+                        magic_bytes = f.read(4)
+                        if magic_bytes.startswith(b'PK'):
+                            return 'zip'
+                        elif magic_bytes[0:2] == bytes([0x1f, 0x8b]):
+                            return 'tar.gz'
+                except Exception:
+                    pass
+                return 'tar'
+        
+        def download_archive(cdn_url, output_path):
+            print('DEBUG: download_archive called with URL (repr): ' + repr(cdn_url))
+            print('Downloading archive from: ' + cdn_url)
+            try:
+                response = requests.get(cdn_url, stream=True, timeout=300)
+                response.raise_for_status()
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                total_size = int(response.headers.get('content-length', 0))
+                downloaded_size = 0
+                with open(output_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                            downloaded_size += len(chunk)
+                            if total_size > 0:
+                                percent = (downloaded_size / total_size) * 100
+                                if downloaded_size % (1024 * 1024 * 10) < 8192:
+                                    print('  Downloaded: ' + '{:.1f}'.format(percent) + '%')
+                file_size = os.path.getsize(output_path)
+                size_mb = file_size / 1024 / 1024
+                print('Download complete! File size: ' + '{:.2f}'.format(size_mb) + ' MB')
+                return file_size
+            except requests.exceptions.HTTPError as e:
+                print('HTTP Error occurred!')
+                print('  Status Code: ' + str(e.response.status_code))
+                print('  Reason: ' + str(e.response.reason))
+                print('  URL (repr): ' + repr(cdn_url))
+                if e.response.status_code == 500:
+                    print('  Suggestion: The server encountered an internal error. Check if:')
+                    print('    - The URL is correct and properly formatted')
+                    print('    - The file exists on the CDN')
+                    print('    - The CDN server is accessible')
+                raise
+            except requests.exceptions.ConnectionError as e:
+                print('Connection Error: Unable to reach the CDN server')
+                print('  URL: ' + cdn_url)
+                print('  Error: ' + str(e))
+                raise
+            except requests.exceptions.Timeout as e:
+                print('Timeout Error: Request took too long (timeout: 300s)')
+                print('  URL: ' + cdn_url)
+                raise
+            except Exception as e:
+                print('Download failed: ' + str(e))
+                raise
+        
+        def extract_archive(archive_path, extract_to_dir, archive_format):
+            print('Extracting ' + archive_format + ' archive: ' + archive_path)
+            try:
+                os.makedirs(extract_to_dir, exist_ok=True)
+                if archive_format == 'tar.gz':
+                    with tarfile.open(archive_path, 'r:gz') as tar:
+                        tar.extractall(path=extract_to_dir)
+                elif archive_format == 'tar':
+                    with tarfile.open(archive_path, 'r') as tar:
+                        tar.extractall(path=extract_to_dir)
+                elif archive_format == 'zip':
+                    with zipfile.ZipFile(archive_path, 'r') as zf:
+                        zf.extractall(path=extract_to_dir)
+                else:
+                    raise ValueError('Unknown archive format: ' + archive_format)
+                print('Extraction successful!')
+                return True
+            except Exception as e:
+                print('Extraction failed: ' + str(e))
+                raise
+        
+        def unwrap_single_root_directory(extract_dir):
+            contents = os.listdir(extract_dir)
+            if len(contents) == 1 and os.path.isdir(os.path.join(extract_dir, contents[0])):
+                actual_content_dir = os.path.join(extract_dir, contents[0])
+                return actual_content_dir
+            else:
+                return extract_dir
+        
+        def get_directory_size(path):
+            total = 0
+            for dirpath, dirnames, filenames in os.walk(path):
+                for filename in filenames:
+                    filepath = os.path.join(dirpath, filename)
+                    if os.path.exists(filepath):
+                        total += os.path.getsize(filepath)
+            return total
+        
+        def verify_lora_adapter_structure(adapter_dir):
+            contents = os.listdir(adapter_dir)
+            has_adapter = 'adapter' in contents and os.path.isdir(os.path.join(adapter_dir, 'adapter'))
+            has_merged = 'merged_model' in contents and os.path.isdir(os.path.join(adapter_dir, 'merged_model'))
+            adapter_files = []
+            if has_adapter:
+                adapter_files = os.listdir(os.path.join(adapter_dir, 'adapter'))
+            tokenizer_files = [f for f in contents if 'tokenizer' in f.lower() or f in ['vocab.json', 'special_tokens_map.json']]
+            has_run_config = 'run_config.json' in contents
+            print('LoRA adapter structure verified:')
+            print('  - adapter/ subdirectory: ' + ('YES' if has_adapter else 'NO'))
+            print('  - merged_model/ directory: ' + ('YES' if has_merged else 'NO'))
+            print('  - run_config.json: ' + ('YES' if has_run_config else 'NO'))
+            print('  - Tokenizer files: ' + str(tokenizer_files))
+            structure_info = {
+                'root_contents': contents,
+                'has_adapter_subdir': has_adapter,
+                'adapter_files': adapter_files,
+                'has_merged_model': has_merged,
+                'tokenizer_files': tokenizer_files,
+                'has_run_config': has_run_config
+            }
+            return structure_info
+        
+        def verify_dataset_structure(dataset_dir):
+            contents = os.listdir(dataset_dir)
+            has_schema = 'schema.json' in contents
+            has_train = 'train' in contents and os.path.isdir(os.path.join(dataset_dir, 'train'))
+            has_validation = 'validation' in contents and os.path.isdir(os.path.join(dataset_dir, 'validation'))
+            splits_found = [s for s in ['train', 'validation', 'test'] if s in contents and os.path.isdir(os.path.join(dataset_dir, s))]
+            schema_path = os.path.join(dataset_dir, 'schema.json') if has_schema else None
+            print('Dataset structure verified:')
+            print('  - schema.json: ' + ('YES' if has_schema else 'NO'))
+            print('  - Data splits found: ' + str(splits_found))
+            structure_info = {
+                'root_contents': contents,
+                'has_schema_json': has_schema,
+                'schema_path': schema_path,
+                'has_train_split': has_train,
+                'has_validation_split': has_validation,
+                'splits_found': splits_found
+            }
+            return structure_info
+        
+        def copy_directory_contents(src, dst):
+            if os.path.exists(dst):
+                shutil.rmtree(dst)
+            shutil.copytree(src, dst)
+        
+        def save_metadata(metadata_path, metadata_dict):
+            output_dir = os.path.dirname(metadata_path)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+            with open(metadata_path, 'w') as f:
+                json.dump(metadata_dict, f, indent=2)
+            print('Metadata saved to: ' + metadata_path)
+        
         try:
-            with open(file_path, 'rb') as f:
-                magic_bytes = f.read(4)
-                if magic_bytes.startswith(b'PK'):
-                    return 'zip'
-                elif magic_bytes[0:2] == bytes([0x1f, 0x8b]):
-                    return 'tar.gz'
-        except Exception:
-            pass
-        return 'tar'
-
-def download_archive(cdn_url, output_path):
-    print('DEBUG: download_archive called with URL (repr): ' + repr(cdn_url))
-    print('Downloading archive from: ' + cdn_url)
-    try:
-        response = requests.get(cdn_url, stream=True, timeout=300)
-        response.raise_for_status()
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        total_size = int(response.headers.get('content-length', 0))
-        downloaded_size = 0
-        with open(output_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-                    downloaded_size += len(chunk)
-                    if total_size > 0:
-                        percent = (downloaded_size / total_size) * 100
-                        if downloaded_size % (1024 * 1024 * 10) < 8192:
-                            print('  Downloaded: ' + '{:.1f}'.format(percent) + '%')
-        file_size = os.path.getsize(output_path)
-        size_mb = file_size / 1024 / 1024
-        print('Download complete! File size: ' + '{:.2f}'.format(size_mb) + ' MB')
-        return file_size
-    except requests.exceptions.HTTPError as e:
-        print('HTTP Error occurred!')
-        print('  Status Code: ' + str(e.response.status_code))
-        print('  Reason: ' + str(e.response.reason))
-        print('  URL (repr): ' + repr(cdn_url))
-        if e.response.status_code == 500:
-            print('  Suggestion: The server encountered an internal error. Check if:')
-            print('    - The URL is correct and properly formatted')
-            print('    - The file exists on the CDN')
-            print('    - The CDN server is accessible')
-        raise
-    except requests.exceptions.ConnectionError as e:
-        print('Connection Error: Unable to reach the CDN server')
-        print('  URL: ' + cdn_url)
-        print('  Error: ' + str(e))
-        raise
-    except requests.exceptions.Timeout as e:
-        print('Timeout Error: Request took too long (timeout: 300s)')
-        print('  URL: ' + cdn_url)
-        raise
-    except Exception as e:
-        print('Download failed: ' + str(e))
-        raise
-
-def extract_archive(archive_path, extract_to_dir, archive_format):
-    print('Extracting ' + archive_format + ' archive: ' + archive_path)
-    try:
-        os.makedirs(extract_to_dir, exist_ok=True)
-        if archive_format == 'tar.gz':
-            with tarfile.open(archive_path, 'r:gz') as tar:
-                tar.extractall(path=extract_to_dir)
-        elif archive_format == 'tar':
-            with tarfile.open(archive_path, 'r') as tar:
-                tar.extractall(path=extract_to_dir)
-        elif archive_format == 'zip':
-            with zipfile.ZipFile(archive_path, 'r') as zf:
-                zf.extractall(path=extract_to_dir)
-        else:
-            raise ValueError('Unknown archive format: ' + archive_format)
-        print('Extraction successful!')
-        return True
-    except Exception as e:
-        print('Extraction failed: ' + str(e))
-        raise
-
-def unwrap_single_root_directory(extract_dir):
-    contents = os.listdir(extract_dir)
-    if len(contents) == 1 and os.path.isdir(os.path.join(extract_dir, contents[0])):
-        actual_content_dir = os.path.join(extract_dir, contents[0])
-        return actual_content_dir
-    else:
-        return extract_dir
-
-def get_directory_size(path):
-    total = 0
-    for dirpath, dirnames, filenames in os.walk(path):
-        for filename in filenames:
-            filepath = os.path.join(dirpath, filename)
-            if os.path.exists(filepath):
-                total += os.path.getsize(filepath)
-    return total
-
-def verify_lora_adapter_structure(adapter_dir):
-    contents = os.listdir(adapter_dir)
-    has_adapter = 'adapter' in contents and os.path.isdir(os.path.join(adapter_dir, 'adapter'))
-    has_merged = 'merged_model' in contents and os.path.isdir(os.path.join(adapter_dir, 'merged_model'))
-    adapter_files = []
-    if has_adapter:
-        adapter_files = os.listdir(os.path.join(adapter_dir, 'adapter'))
-    tokenizer_files = [f for f in contents if 'tokenizer' in f.lower() or f in ['vocab.json', 'special_tokens_map.json']]
-    has_run_config = 'run_config.json' in contents
-    print('LoRA adapter structure verified:')
-    print('  - adapter/ subdirectory: ' + ('YES' if has_adapter else 'NO'))
-    print('  - merged_model/ directory: ' + ('YES' if has_merged else 'NO'))
-    print('  - run_config.json: ' + ('YES' if has_run_config else 'NO'))
-    print('  - Tokenizer files: ' + str(tokenizer_files))
-    structure_info = {
-        'root_contents': contents,
-        'has_adapter_subdir': has_adapter,
-        'adapter_files': adapter_files,
-        'has_merged_model': has_merged,
-        'tokenizer_files': tokenizer_files,
-        'has_run_config': has_run_config
-    }
-    return structure_info
-
-def verify_dataset_structure(dataset_dir):
-    contents = os.listdir(dataset_dir)
-    has_schema = 'schema.json' in contents
-    has_train = 'train' in contents and os.path.isdir(os.path.join(dataset_dir, 'train'))
-    has_validation = 'validation' in contents and os.path.isdir(os.path.join(dataset_dir, 'validation'))
-    splits_found = [s for s in ['train', 'validation', 'test'] if s in contents and os.path.isdir(os.path.join(dataset_dir, s))]
-    schema_path = os.path.join(dataset_dir, 'schema.json') if has_schema else None
-    print('Dataset structure verified:')
-    print('  - schema.json: ' + ('YES' if has_schema else 'NO'))
-    print('  - Data splits found: ' + str(splits_found))
-    structure_info = {
-        'root_contents': contents,
-        'has_schema_json': has_schema,
-        'schema_path': schema_path,
-        'has_train_split': has_train,
-        'has_validation_split': has_validation,
-        'splits_found': splits_found
-    }
-    return structure_info
-
-def copy_directory_contents(src, dst):
-    if os.path.exists(dst):
-        shutil.rmtree(dst)
-    shutil.copytree(src, dst)
-
-def save_metadata(metadata_path, metadata_dict):
-    output_dir = os.path.dirname(metadata_path)
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
-    with open(metadata_path, 'w') as f:
-        json.dump(metadata_dict, f, indent=2)
-    print('Metadata saved to: ' + metadata_path)
-
-try:
-    print('=' * 70)
-    print('Archive CDN Downloader & Extractor')
-    print('=' * 70)
-    print('')
-    print('Validating and cleaning input URLs...')
-    print('LoRA URL received:')
-    lora_cleaned_url = validate_and_clean_url(args.lora_adapter_archive_cdn_url)
-    print('')
-    print('Dataset URL received:')
-    dataset_cleaned_url = validate_and_clean_url(args.dataset_archive_cdn_url)
-    print('URLs validated successfully')
-    print('')
-    print('=' * 70)
-    print('Processing LoRA Adapter Archive')
-    print('=' * 70)
-    lora_archive_filename = 'lora_adapter_archive.tmp'
-    lora_archive_path = os.path.join('/tmp', lora_archive_filename)
-    lora_extract_temp = os.path.join('/tmp', 'lora_extract_temp')
-    lora_download_size = download_archive(lora_cleaned_url, lora_archive_path)
-    lora_format = detect_archive_format(lora_archive_path)
-    print('Detected format: ' + lora_format)
-    extract_archive(lora_archive_path, lora_extract_temp, lora_format)
-    lora_actual_dir = unwrap_single_root_directory(lora_extract_temp)
-    lora_contents = os.listdir(lora_actual_dir)
-    print('Extracted LoRA adapter contents: ' + str(lora_contents))
-    lora_adapter_size = get_directory_size(lora_actual_dir)
-    lora_size_mb = lora_adapter_size / 1024 / 1024
-    print('Extracted size: ' + '{:.2f}'.format(lora_size_mb) + ' MB')
-    lora_structure = verify_lora_adapter_structure(lora_actual_dir)
-    os.makedirs(os.path.dirname(args.lora_adapters), exist_ok=True)
-    copy_directory_contents(lora_actual_dir, args.lora_adapters)
-    print('LoRA adapters extracted and copied to: ' + args.lora_adapters)
-    print('')
-    print('=' * 70)
-    print('Processing Dataset Archive')
-    print('=' * 70)
-    dataset_archive_filename = 'dataset_archive.tmp'
-    dataset_archive_path = os.path.join('/tmp', dataset_archive_filename)
-    dataset_extract_temp = os.path.join('/tmp', 'dataset_extract_temp')
-    dataset_download_size = download_archive(dataset_cleaned_url, dataset_archive_path)
-    dataset_format = detect_archive_format(dataset_archive_path)
-    print('Detected format: ' + dataset_format)
-    extract_archive(dataset_archive_path, dataset_extract_temp, dataset_format)
-    dataset_actual_dir = unwrap_single_root_directory(dataset_extract_temp)
-    dataset_contents = os.listdir(dataset_actual_dir)
-    print('Extracted dataset contents: ' + str(dataset_contents))
-    dataset_size = get_directory_size(dataset_actual_dir)
-    dataset_size_mb = dataset_size / 1024 / 1024
-    print('Extracted size: ' + '{:.2f}'.format(dataset_size_mb) + ' MB')
-    dataset_structure = verify_dataset_structure(dataset_actual_dir)
-    schema_source_path = dataset_structure.get('schema_path')
-    if schema_source_path and os.path.exists(schema_source_path):
-        print('Found schema.json in dataset archive')
-        os.makedirs(os.path.dirname(args.schema_json), exist_ok=True)
-        shutil.copy2(schema_source_path, args.schema_json)
-        print('Schema JSON copied to: ' + args.schema_json)
-    else:
-        print('WARNING: schema.json not found in dataset archive!')
-        placeholder_schema = {
-            "dataset_source": "cdn_archive",
-            "warning": "schema.json was not found in the dataset archive",
-            "extracted_contents": dataset_contents
-        }
-        os.makedirs(os.path.dirname(args.schema_json), exist_ok=True)
-        with open(args.schema_json, 'w') as f:
-            json.dump(placeholder_schema, f, indent=2)
-        print('Created placeholder schema at: ' + args.schema_json)
-    os.makedirs(os.path.dirname(args.processed_dataset), exist_ok=True)
-    copy_directory_contents(dataset_actual_dir, args.processed_dataset)
-    print('Dataset extracted and copied to: ' + args.processed_dataset)
-    print('')
-    print('=' * 70)
-    print('Generating Extraction Metadata')
-    print('=' * 70)
-    metadata = {
-        'extraction_timestamp': datetime.utcnow().isoformat(),
-        'lora_adapters': {
-            'cdn_url': lora_cleaned_url,
-            'compression_format': lora_format,
-            'download_size_bytes': lora_download_size,
-            'extracted_size_bytes': lora_adapter_size,
-            'extracted_size_mb': round(lora_size_mb, 2),
-            'output_path': args.lora_adapters,
-            'structure': {
-                'root_contents': lora_structure['root_contents'],
-                'has_adapter_subdir': lora_structure['has_adapter_subdir'],
-                'adapter_files': lora_structure['adapter_files'],
-                'has_merged_model': lora_structure['has_merged_model'],
-                'tokenizer_files': lora_structure['tokenizer_files'],
-                'has_run_config': lora_structure['has_run_config']
+            print('=' * 70)
+            print('Archive CDN Downloader & Extractor')
+            print('=' * 70)
+            print('')
+            print('Validating and cleaning input URLs...')
+            print('LoRA URL received:')
+            lora_cleaned_url = validate_and_clean_url(args.lora_adapter_archive_cdn_url)
+            print('')
+            print('Dataset URL received:')
+            dataset_cleaned_url = validate_and_clean_url(args.dataset_archive_cdn_url)
+            print('URLs validated successfully')
+            print('')
+            print('=' * 70)
+            print('Processing LoRA Adapter Archive')
+            print('=' * 70)
+            lora_archive_filename = 'lora_adapter_archive.tmp'
+            lora_archive_path = os.path.join('/tmp', lora_archive_filename)
+            lora_extract_temp = os.path.join('/tmp', 'lora_extract_temp')
+            lora_download_size = download_archive(lora_cleaned_url, lora_archive_path)
+            lora_format = detect_archive_format(lora_archive_path)
+            print('Detected format: ' + lora_format)
+            extract_archive(lora_archive_path, lora_extract_temp, lora_format)
+            lora_actual_dir = unwrap_single_root_directory(lora_extract_temp)
+            lora_contents = os.listdir(lora_actual_dir)
+            print('Extracted LoRA adapter contents: ' + str(lora_contents))
+            lora_adapter_size = get_directory_size(lora_actual_dir)
+            lora_size_mb = lora_adapter_size / 1024 / 1024
+            print('Extracted size: ' + '{:.2f}'.format(lora_size_mb) + ' MB')
+            lora_structure = verify_lora_adapter_structure(lora_actual_dir)
+            os.makedirs(os.path.dirname(args.lora_adapters), exist_ok=True)
+            copy_directory_contents(lora_actual_dir, args.lora_adapters)
+            print('LoRA adapters extracted and copied to: ' + args.lora_adapters)
+            print('')
+            print('=' * 70)
+            print('Processing Dataset Archive')
+            print('=' * 70)
+            dataset_archive_filename = 'dataset_archive.tmp'
+            dataset_archive_path = os.path.join('/tmp', dataset_archive_filename)
+            dataset_extract_temp = os.path.join('/tmp', 'dataset_extract_temp')
+            dataset_download_size = download_archive(dataset_cleaned_url, dataset_archive_path)
+            dataset_format = detect_archive_format(dataset_archive_path)
+            print('Detected format: ' + dataset_format)
+            extract_archive(dataset_archive_path, dataset_extract_temp, dataset_format)
+            dataset_actual_dir = unwrap_single_root_directory(dataset_extract_temp)
+            dataset_contents = os.listdir(dataset_actual_dir)
+            print('Extracted dataset contents: ' + str(dataset_contents))
+            dataset_size = get_directory_size(dataset_actual_dir)
+            dataset_size_mb = dataset_size / 1024 / 1024
+            print('Extracted size: ' + '{:.2f}'.format(dataset_size_mb) + ' MB')
+            dataset_structure = verify_dataset_structure(dataset_actual_dir)
+            schema_source_path = dataset_structure.get('schema_path')
+            if schema_source_path and os.path.exists(schema_source_path):
+                print('Found schema.json in dataset archive')
+                os.makedirs(os.path.dirname(args.schema_json), exist_ok=True)
+                shutil.copy2(schema_source_path, args.schema_json)
+                print('Schema JSON copied to: ' + args.schema_json)
+            else:
+                print('WARNING: schema.json not found in dataset archive!')
+                placeholder_schema = {
+                    "dataset_source": "cdn_archive",
+                    "warning": "schema.json was not found in the dataset archive",
+                    "extracted_contents": dataset_contents
+                }
+                os.makedirs(os.path.dirname(args.schema_json), exist_ok=True)
+                with open(args.schema_json, 'w') as f:
+                    json.dump(placeholder_schema, f, indent=2)
+                print('Created placeholder schema at: ' + args.schema_json)
+            os.makedirs(os.path.dirname(args.processed_dataset), exist_ok=True)
+            copy_directory_contents(dataset_actual_dir, args.processed_dataset)
+            print('Dataset extracted and copied to: ' + args.processed_dataset)
+            print('')
+            print('=' * 70)
+            print('Generating Extraction Metadata')
+            print('=' * 70)
+            metadata = {
+                'extraction_timestamp': datetime.utcnow().isoformat(),
+                'lora_adapters': {
+                    'cdn_url': lora_cleaned_url,
+                    'compression_format': lora_format,
+                    'download_size_bytes': lora_download_size,
+                    'extracted_size_bytes': lora_adapter_size,
+                    'extracted_size_mb': round(lora_size_mb, 2),
+                    'output_path': args.lora_adapters,
+                    'structure': {
+                        'root_contents': lora_structure['root_contents'],
+                        'has_adapter_subdir': lora_structure['has_adapter_subdir'],
+                        'adapter_files': lora_structure['adapter_files'],
+                        'has_merged_model': lora_structure['has_merged_model'],
+                        'tokenizer_files': lora_structure['tokenizer_files'],
+                        'has_run_config': lora_structure['has_run_config']
+                    }
+                },
+                'processed_dataset': {
+                    'cdn_url': dataset_cleaned_url,
+                    'compression_format': dataset_format,
+                    'download_size_bytes': dataset_download_size,
+                    'extracted_size_bytes': dataset_size,
+                    'extracted_size_mb': round(dataset_size_mb, 2),
+                    'output_path': args.processed_dataset,
+                    'schema_json_path': args.schema_json,
+                    'structure': {
+                        'root_contents': dataset_structure['root_contents'],
+                        'has_schema_json': dataset_structure['has_schema_json'],
+                        'data_splits': dataset_structure['splits_found']
+                    }
+                }
             }
-        },
-        'processed_dataset': {
-            'cdn_url': dataset_cleaned_url,
-            'compression_format': dataset_format,
-            'download_size_bytes': dataset_download_size,
-            'extracted_size_bytes': dataset_size,
-            'extracted_size_mb': round(dataset_size_mb, 2),
-            'output_path': args.processed_dataset,
-            'schema_json_path': args.schema_json,
-            'structure': {
-                'root_contents': dataset_structure['root_contents'],
-                'has_schema_json': dataset_structure['has_schema_json'],
-                'data_splits': dataset_structure['splits_found']
-            }
-        }
-    }
-    save_metadata(args.extraction_metadata, metadata)
-    print('')
-    print('=' * 70)
-    print('SUCCESS! Archives Downloaded and Extracted')
-    print('=' * 70)
-    print('LoRA Adapters:')
-    print('  Output path: ' + args.lora_adapters)
-    print('  Extracted size: ' + '{:.2f}'.format(lora_size_mb) + ' MB')
-    print('  Format: ' + lora_format)
-    print('  Contents: ' + str(lora_structure['root_contents']))
-    print('')
-    print('Processed Dataset:')
-    print('  Output path: ' + args.processed_dataset)
-    print('  Schema JSON path: ' + args.schema_json)
-    print('  Extracted size: ' + '{:.2f}'.format(dataset_size_mb) + ' MB')
-    print('  Format: ' + dataset_format)
-    print('  Data splits: ' + str(dataset_structure['splits_found']))
-    print('')
-    print('Metadata: ' + args.extraction_metadata)
-    print('=' * 70)
-    if os.path.exists(lora_archive_path):
-        os.remove(lora_archive_path)
-    if os.path.exists(dataset_archive_path):
-        os.remove(dataset_archive_path)
-    if os.path.exists(lora_extract_temp):
-        shutil.rmtree(lora_extract_temp)
-    if os.path.exists(dataset_extract_temp):
-        shutil.rmtree(dataset_extract_temp)
-    print('Cleaned up temporary files')
-except Exception as e:
-    print('')
-    print('=' * 70)
-    print('EXTRACTION FAILED!')
-    print('Error: ' + str(e))
-    print('=' * 70)
-    raise
+            save_metadata(args.extraction_metadata, metadata)
+            print('')
+            print('=' * 70)
+            print('SUCCESS! Archives Downloaded and Extracted')
+            print('=' * 70)
+            print('LoRA Adapters:')
+            print('  Output path: ' + args.lora_adapters)
+            print('  Extracted size: ' + '{:.2f}'.format(lora_size_mb) + ' MB')
+            print('  Format: ' + lora_format)
+            print('  Contents: ' + str(lora_structure['root_contents']))
+            print('')
+            print('Processed Dataset:')
+            print('  Output path: ' + args.processed_dataset)
+            print('  Schema JSON path: ' + args.schema_json)
+            print('  Extracted size: ' + '{:.2f}'.format(dataset_size_mb) + ' MB')
+            print('  Format: ' + dataset_format)
+            print('  Data splits: ' + str(dataset_structure['splits_found']))
+            print('')
+            print('Metadata: ' + args.extraction_metadata)
+            print('=' * 70)
+            if os.path.exists(lora_archive_path):
+                os.remove(lora_archive_path)
+            if os.path.exists(dataset_archive_path):
+                os.remove(dataset_archive_path)
+            if os.path.exists(lora_extract_temp):
+                shutil.rmtree(lora_extract_temp)
+            if os.path.exists(dataset_extract_temp):
+                shutil.rmtree(dataset_extract_temp)
+            print('Cleaned up temporary files')
+        except Exception as e:
+            print('')
+            print('=' * 70)
+            print('EXTRACTION FAILED!')
+            print('Error: ' + str(e))
+            print('=' * 70)
+            raise
         PYTHON_SCRIPT_EOF
         
         python3 -u /tmp/downloader.py \
@@ -407,3 +407,4 @@ except Exception as e:
       - {outputPath: processed_dataset}
       - {outputPath: schema_json}
       - {outputPath: extraction_metadata}
+
