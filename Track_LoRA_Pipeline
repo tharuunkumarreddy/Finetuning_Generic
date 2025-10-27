@@ -193,8 +193,8 @@ implementation:
         # Keys that should be stored as float type
         float_keys = ["learning_rate"]
 
-        print("\n[Schema Update] Execution ID = " + str(args.execution_id))
-        print("[Schema Update] Schema ID = " + str(args.schema_id))
+        print("\n[Schema Update] Execution ID: " + str(args.execution_id))
+        print("[Schema Update] Schema ID: " + str(args.schema_id))
 
         # Setup HTTP session with retries
         headers = {
@@ -283,7 +283,7 @@ implementation:
                 response.raise_for_status()
                 
                 print("[Schema Update] Successfully updated existing record")
-                status_message = "Updated existing record for execution_id = " + str(args.execution_id)
+                status_message = "Updated existing record for execution_id: " + str(args.execution_id)
                 
             else:
                 # CREATE new row
@@ -333,16 +333,16 @@ implementation:
                 response.raise_for_status()
                 
                 print("[Schema Update] Successfully created new record")
-                status_message = "Created new record for execution_id = " + str(args.execution_id)
+                status_message = "Created new record for execution_id: " + str(args.execution_id)
             
             print("[Schema Update] API Response: " + str(response.json()))
 
         except requests.exceptions.RequestException as e:
-            error_msg = "Schema update failed - " + str(e)
+            error_msg = "Schema update failed: " + str(e)
             print("\n[Schema Update] " + error_msg)
             if hasattr(e, 'response') and e.response is not None:
-                print("[Schema Update] Status = " + str(e.response.status_code))
-                print("[Schema Update] Response = " + str(e.response.text))
+                print("[Schema Update] Status: " + str(e.response.status_code))
+                print("[Schema Update] Response: " + str(e.response.text))
             status_message = error_msg
 
         # Write status to output file
