@@ -8,11 +8,11 @@ inputs:
   - {name: execution_id, type: String, description: 'Unique execution ID for this pipeline run'}
   - {name: experiment_name, type: String, description: 'Human-readable experiment name', default: 'LoRA Experiment'}
   - {name: schema_id, type: String, description: 'The ID of the schema to update'}
-  - {name: tenant_id, type: String, description: 'The ID of the tenant'}
+  - {name: tenant_id, type: string, description: 'The ID of the tenant'}
   - {name: project_id, type: String, description: 'The ID of the project'}
   - {name: model_id, type: String, description: 'The ID of the model', default: '-1'}
   - {name: architecture_type, type: String, description: 'The architecture type', default: 'LoRA'}
-  - {name: bearer_auth_token, type: String, description: 'Bearer token for authentication'}
+  - {name: bearer_auth_token, type: string, description: 'Bearer token for authentication'}
   - {name: domain, type: String, description: 'The domain for the API endpoint'}
 
 outputs:
