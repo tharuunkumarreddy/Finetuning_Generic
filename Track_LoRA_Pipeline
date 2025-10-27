@@ -2,16 +2,11 @@ name: Track LoRA Pipeline Essentials
 description: Tracks essential metadata from LoRA fine-tuning pipeline - dataset, model, key hyperparameters, and results. Lightweight tracking focused on reproducibility.
 
 inputs:
-  # Metadata files from previous components
   - {name: dataset_schema_json, type: Data, description: 'Schema JSON from Generic Dataset Preparation'}
   - {name: lora_adapters_dir, type: Model, description: 'LoRA adapters directory containing run_config.json'}
   - {name: merged_model_dir, type: Model, description: 'Merged model directory (optional for tracking)'}
-  
-  # Execution tracking
   - {name: execution_id, type: String, description: 'Unique execution ID for this pipeline run'}
   - {name: experiment_name, type: String, description: 'Human-readable experiment name', default: 'LoRA Experiment'}
-  
-  # Schema update parameters (same as Update Schema Row component)
   - {name: schema_id, type: String, description: 'The ID of the schema to update'}
   - {name: tenant_id, type: String, description: 'The ID of the tenant'}
   - {name: project_id, type: String, description: 'The ID of the project'}
@@ -30,11 +25,8 @@ implementation:
       - sh
       - -c
       - |
-        pip install requests
-        exec "$0" "$@"
-      - python3
-      - -u
-      - -c
+        pip install requests > /dev/null 2>&1
+        exec python3 -u -c "$0" "$@"
       - |
         import json
         import argparse
@@ -45,16 +37,11 @@ implementation:
         from datetime import datetime
 
         parser = argparse.ArgumentParser()
-        # Metadata inputs
         parser.add_argument('--dataset_schema_json', type=str, required=True)
         parser.add_argument('--lora_adapters_dir', type=str, required=True)
         parser.add_argument('--merged_model_dir', type=str, required=False, default='')
-        
-        # Execution tracking
         parser.add_argument('--execution_id', type=str, required=True)
         parser.add_argument('--experiment_name', type=str, default='LoRA Experiment')
-        
-        # Schema parameters
         parser.add_argument('--schema_id', type=str, required=True)
         parser.add_argument('--tenant_id', type=str, required=True)
         parser.add_argument('--project_id', type=str, required=True)
@@ -62,10 +49,7 @@ implementation:
         parser.add_argument('--architecture_type', type=str, default='LoRA')
         parser.add_argument('--bearer_auth_token', type=str, required=True)
         parser.add_argument('--domain', type=str, required=True)
-        
-        # Output
         parser.add_argument('--tracking_status', type=str, required=True)
-        
         args = parser.parse_args()
 
         def ensure_directory_exists(file_path):
@@ -74,22 +58,21 @@ implementation:
                 os.makedirs(directory, exist_ok=True)
 
         def read_json_safe(file_path):
-            # Safely read JSON file, return empty dict if fails
             if not os.path.exists(file_path):
                 return {}
             try:
                 with open(file_path, 'r') as f:
                     return json.load(f)
             except Exception as e:
-                print("Warning: Could not read " + str(file_path) + ": " + str(e))
+                print("Warning - Could not read file - " + str(e))
                 return {}
 
         print("=" * 80)
         print("TRACKING LORA PIPELINE ESSENTIALS")
         print("=" * 80)
 
-        # 1. Load Dataset Info
-        print("\n[1/3] Reading dataset metadata...")
+        print("")
+        print("Step 1 of 3 - Reading dataset metadata")
         dataset_info = read_json_safe(args.dataset_schema_json)
         
         dataset_source = dataset_info.get('dataset_source', 'unknown')
@@ -97,11 +80,13 @@ implementation:
         num_train = dataset_info.get('num_train', 0)
         num_val = dataset_info.get('num_val', 0)
         
-        print("   Dataset = " + str(dataset_source) + " - " + str(dataset_uri))
-        print("   Samples = " + str(num_train) + " train, " + str(num_val) + " validation")
+        print("Dataset source = " + str(dataset_source))
+        print("Dataset URI = " + str(dataset_uri))
+        print("Train samples = " + str(num_train))
+        print("Val samples = " + str(num_val))
 
-        # 2. Load Training Config (run_config.json)
-        print("\n[2/3] Reading training configuration...")
+        print("")
+        print("Step 2 of 3 - Reading training configuration")
         run_config_path = os.path.join(args.lora_adapters_dir, "run_config.json")
         training_config = read_json_safe(run_config_path)
         
@@ -112,43 +97,39 @@ implementation:
         lora_r = training_config.get('lora_r', 0)
         lora_alpha = training_config.get('lora_alpha', 0)
         
-        print("   Base Model = " + str(base_model))
-        print("   Training = " + str(epochs) + " epochs, batch=" + str(batch_size) + ", lr=" + str(learning_rate))
-        print("   LoRA Config = r=" + str(lora_r) + ", alpha=" + str(lora_alpha))
+        print("Base model = " + str(base_model))
+        print("Epochs = " + str(epochs))
+        print("Batch size = " + str(batch_size))
+        print("Learning rate = " + str(learning_rate))
+        print("LoRA rank = " + str(lora_r))
+        print("LoRA alpha = " + str(lora_alpha))
 
-        # 3. Check Merged Model (optional)
-        print("\n[3/3] Checking merged model...")
+        print("")
+        print("Step 3 of 3 - Checking merged model")
         merged_model_exists = False
         merged_model_path = 'not_merged'
         
         if args.merged_model_dir and os.path.exists(args.merged_model_dir):
             merged_model_exists = True
             merged_model_path = args.merged_model_dir
-            print("   Merged model found at = " + str(merged_model_path))
+            print("Merged model found at " + str(merged_model_path))
         else:
-            print("   Merged model not provided or not found")
+            print("Merged model not provided")
 
-        # 4. Prepare Essential Tracking Data
-        print("\n[4/4] Preparing tracking data...")
+        print("")
+        print("Step 4 of 4 - Preparing tracking data")
         
-        # This is the ESSENTIAL data we want to track
         tracking_data = {
             "experiment_name": args.experiment_name,
             "execution_timestamp": datetime.utcnow().isoformat() + "Z",
-            
-            # Dataset essentials
             "dataset_source": dataset_source,
             "dataset_name": dataset_uri,
             "num_training_samples": num_train,
             "num_validation_samples": num_val,
-            
-            # Model essentials
             "base_model_name": base_model,
             "adapter_location": args.lora_adapters_dir,
             "merged_model_location": merged_model_path,
             "model_merged": merged_model_exists,
-            
-            # Key hyperparameters only
             "training_epochs": epochs,
             "batch_size": batch_size,
             "learning_rate": learning_rate,
@@ -156,22 +137,19 @@ implementation:
             "lora_alpha": lora_alpha
         }
 
-        print("\n   Tracking " + str(len(tracking_data)) + " essential fields")
+        print("Tracking " + str(len(tracking_data)) + " essential fields")
 
-        # 5. Update Schema Database
-        print("\n" + "=" * 80)
+        print("")
+        print("=" * 80)
         print("UPDATING SCHEMA DATABASE")
         print("=" * 80)
 
-        # Read auth tokens
         with open(args.bearer_auth_token, 'r') as f:
             bearer_auth_token = f.read().strip()
 
         with open(args.tenant_id, 'r') as f:
             tenant_id = f.read().strip()
 
-        # Define mapping: schema_column_name -> tracking_data_key
-        # IMPORTANT: Adjust these column names to match YOUR schema!
         mapping = {
             "experiment_name": "experiment_name",
             "timestamp": "execution_timestamp",
@@ -190,16 +168,15 @@ implementation:
             "lora_alpha": "lora_alpha"
         }
 
-        # Keys that should be stored as float type
         float_keys = ["learning_rate"]
 
-        print("\n[Schema Update] Execution ID: " + str(args.execution_id))
-        print("[Schema Update] Schema ID: " + str(args.schema_id))
+        print("")
+        print("Execution ID = " + str(args.execution_id))
+        print("Schema ID = " + str(args.schema_id))
 
-        # Setup HTTP session with retries
         headers = {
             'Content-Type': 'application/json',
-            'Authorization': f'Bearer {bearer_auth_token}'
+            'Authorization': 'Bearer ' + bearer_auth_token
         }
 
         retry_strategy = Retry(
@@ -213,8 +190,7 @@ implementation:
         http.mount("https://", adapter)
         http.mount("http://", adapter)
 
-        # Check if execution_id already exists
-        check_url = f"{args.domain}/pi-entity-instances-service/v3.0/schemas/{args.schema_id}/instances/list"
+        check_url = args.domain + "/pi-entity-instances-service/v3.0/schemas/" + args.schema_id + "/instances/list"
         check_payload = {
             "dbType": "TIDB",
             "ownedOnly": True,
@@ -223,7 +199,8 @@ implementation:
             }
         }
         
-        print(f"\n[Schema Update] Checking for existing record...")
+        print("")
+        print("Checking for existing record")
 
         try:
             response = http.post(check_url, headers=headers, data=json.dumps(check_payload), timeout=60)
@@ -231,15 +208,13 @@ implementation:
             response_data = response.json()
             
             if response_data.get("content"):
-                # UPDATE existing row
-                print("[Schema Update] Found existing record - UPDATING")
+                print("Found existing record - UPDATING")
                 
                 patch_requests = []
                 for schema_column, data_key in mapping.items():
                     if data_key in tracking_data:
                         value = tracking_data[data_key]
                         
-                        # Convert to appropriate type
                         if data_key in float_keys:
                             try:
                                 value_to_patch = float(value)
@@ -258,7 +233,7 @@ implementation:
                             "value": value_to_patch
                         })
 
-                update_url = f"{args.domain}/pi-entity-instances-service/v2.0/schemas/{args.schema_id}/instances"
+                update_url = args.domain + "/pi-entity-instances-service/v2.0/schemas/" + args.schema_id + "/instances"
                 update_payload = {
                     "dbType": "TIDB",
                     "conditionalFilter": {
@@ -277,24 +252,22 @@ implementation:
                     ]
                 }
                 
-                print("[Schema Update] Updating " + str(len(patch_requests)) + " fields...")
+                print("Updating " + str(len(patch_requests)) + " fields")
                 
                 response = http.patch(update_url, headers=headers, data=json.dumps(update_payload), timeout=60)
                 response.raise_for_status()
                 
-                print("[Schema Update] Successfully updated existing record")
-                status_message = "Updated existing record for execution_id: " + str(args.execution_id)
+                print("Successfully updated existing record")
+                status_message = "Updated existing record for execution_id = " + str(args.execution_id)
                 
             else:
-                # CREATE new row
-                print("[Schema Update] No existing record - CREATING NEW")
+                print("No existing record - CREATING NEW")
                 
                 creation_data = {}
                 for schema_column, data_key in mapping.items():
                     if data_key in tracking_data:
                         value = tracking_data[data_key]
                         
-                        # Convert to appropriate type
                         if data_key in float_keys:
                             try:
                                 value_to_add = float(value)
@@ -309,7 +282,6 @@ implementation:
                         
                         creation_data[schema_column] = value_to_add
                 
-                # Add required metadata fields
                 creation_data['execution_id'] = args.execution_id
                 if args.model_id != '-1':
                     creation_data['model_id'] = args.model_id
@@ -319,44 +291,43 @@ implementation:
                 if args.architecture_type != '-1':
                     creation_data['architecture_type'] = args.architecture_type
 
-                create_url = f"{args.domain}/pi-entity-instances-service/v2.0/schemas/{args.schema_id}/instances"
+                create_url = args.domain + "/pi-entity-instances-service/v2.0/schemas/" + args.schema_id + "/instances"
                 create_payload = {
                     "data": [creation_data]
                 }
 
-                print("[Schema Update] Creating record with " + str(len(creation_data)) + " fields...")
+                print("Creating record with " + str(len(creation_data)) + " fields")
                 
                 response = http.post(create_url, headers=headers, data=json.dumps(create_payload), timeout=60)
                 if response.status_code >= 400:
-                    print("[Schema Update] Error: " + str(response.status_code) + " " + str(response.reason))
-                    print("[Schema Update] Response: " + str(response.text))
+                    print("Error " + str(response.status_code) + " " + str(response.reason))
+                    print("Response " + str(response.text))
                 response.raise_for_status()
                 
-                print("[Schema Update] Successfully created new record")
-                status_message = "Created new record for execution_id: " + str(args.execution_id)
+                print("Successfully created new record")
+                status_message = "Created new record for execution_id = " + str(args.execution_id)
             
-            print("[Schema Update] API Response: " + str(response.json()))
+            print("API Response " + str(response.json()))
 
         except requests.exceptions.RequestException as e:
-            error_msg = "Schema update failed: " + str(e)
-            print("\n[Schema Update] " + error_msg)
+            error_msg = "Schema update failed - " + str(e)
+            print("")
+            print(error_msg)
             if hasattr(e, 'response') and e.response is not None:
-                print("[Schema Update] Status: " + str(e.response.status_code))
-                print("[Schema Update] Response: " + str(e.response.text))
+                print("Status " + str(e.response.status_code))
+                print("Response " + str(e.response.text))
             status_message = error_msg
 
-        # Write status to output file
         ensure_directory_exists(args.tracking_status)
         with open(args.tracking_status, 'w') as f:
             f.write(status_message)
 
-        print("\n" + "=" * 80)
+        print("")
+        print("=" * 80)
         print("TRACKING COMPLETE")
         print("=" * 80)
-        print("Status: " + str(status_message))
+        print("Status = " + str(status_message))
         print("=" * 80)
-
-    args:
       - --dataset_schema_json
       - {inputPath: dataset_schema_json}
       - --lora_adapters_dir
