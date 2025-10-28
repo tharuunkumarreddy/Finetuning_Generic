@@ -270,7 +270,7 @@ implementation:
                 
                 creation_data['execution_id'] = execution_id_value
                 if args.model_id != '-1':
-                    creation_data['model_id'] = args.model_id
+                    creation_data['id'] = args.model_id
                 if args.project_id != '-1':
                     creation_data['project_id'] = args.project_id
                 if args.architecture_type != '-1':
