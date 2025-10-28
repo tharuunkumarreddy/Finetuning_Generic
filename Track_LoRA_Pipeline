@@ -119,9 +119,12 @@ implementation:
         print("")
         print("Step 4 of 4 - Preparing tracking data")
         
+        # Convert timestamp to long (milliseconds since epoch) as per schema requirement
+        execution_timestamp = int(datetime.utcnow().timestamp() * 1000)
+        
         tracking_data = {
             "experiment_name": args.experiment_name,
-            "execution_timestamp": datetime.utcnow().isoformat() + "Z",
+            "execution_timestamp": execution_timestamp,
             "dataset_source": dataset_source,
             "dataset_name": dataset_uri,
             "num_training_samples": str(num_train) + " train, " + str(num_val) + " val",
@@ -132,6 +135,7 @@ implementation:
         }
 
         print("Tracking " + str(len(tracking_data)) + " essential fields")
+        print("Timestamp (long) = " + str(execution_timestamp))
 
         print("")
         print("=" * 80)
@@ -211,6 +215,7 @@ implementation:
                     if data_key in tracking_data:
                         value = tracking_data[data_key]
                         
+                        # Keep proper data types - timestamp should remain as long
                         if isinstance(value, bool):
                             value_to_patch = value
                         elif isinstance(value, (int, float)):
@@ -259,6 +264,7 @@ implementation:
                     if data_key in tracking_data:
                         value = tracking_data[data_key]
                         
+                        # Keep proper data types - timestamp should remain as long
                         if isinstance(value, bool):
                             value_to_add = value
                         elif isinstance(value, (int, float)):
