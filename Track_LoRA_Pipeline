@@ -124,17 +124,11 @@ implementation:
             "execution_timestamp": datetime.utcnow().isoformat() + "Z",
             "dataset_source": dataset_source,
             "dataset_name": dataset_uri,
-            "num_training_samples": num_train,
-            "num_validation_samples": num_val,
+            "num_training_samples": str(num_train) + " train, " + str(num_val) + " val",
             "base_model_name": base_model,
             "adapter_location": args.lora_adapters_dir,
             "merged_model_location": merged_model_path,
-            "model_merged": merged_model_exists,
-            "training_epochs": epochs,
-            "batch_size": batch_size,
-            "learning_rate": learning_rate,
-            "lora_rank": lora_r,
-            "lora_alpha": lora_alpha
+            "architecture_type": args.architecture_type
         }
 
         print("Tracking " + str(len(tracking_data)) + " essential fields")
@@ -151,24 +145,17 @@ implementation:
             tenant_id = f.read().strip()
 
         mapping = {
-            "experiment_name": "experiment_name",
+            "experiment_id": "experiment_name",
             "timestamp": "execution_timestamp",
-            "dataset_source": "dataset_source",
-            "dataset_name": "dataset_name",
-            "train_samples": "num_training_samples",
-            "val_samples": "num_validation_samples",
-            "base_model": "base_model_name",
-            "adapter_path": "adapter_location",
-            "merged_model_path": "merged_model_location",
-            "is_merged": "model_merged",
-            "epochs": "training_epochs",
-            "batch_size": "batch_size",
-            "learning_rate": "learning_rate",
-            "lora_r": "lora_rank",
-            "lora_alpha": "lora_alpha"
+            "datasets_type": "dataset_source",
+            "datasets_url": "dataset_name",
+            "datasets_keys": "num_training_samples",
+            "model_name": "base_model_name",
+            "model_type": "architecture_type",
+            "adapter_url": "adapter_location",
+            "merged_model_url": "merged_model_location",
+            "model_url": "base_model_name"
         }
-
-        float_keys = ["learning_rate"]
 
         print("")
         print("Execution ID = " + str(args.execution_id))
@@ -224,12 +211,7 @@ implementation:
                     if data_key in tracking_data:
                         value = tracking_data[data_key]
                         
-                        if data_key in float_keys:
-                            try:
-                                value_to_patch = float(value)
-                            except (ValueError, TypeError):
-                                value_to_patch = str(value)
-                        elif isinstance(value, bool):
+                        if isinstance(value, bool):
                             value_to_patch = value
                         elif isinstance(value, (int, float)):
                             value_to_patch = value
@@ -250,7 +232,7 @@ implementation:
                             {
                                 "field": "execution_id",
                                 "operator": "EQUAL",
-                                "value": args.execution_id
+                                "value": execution_id_value
                             }
                         ]
                     },
@@ -277,12 +259,7 @@ implementation:
                     if data_key in tracking_data:
                         value = tracking_data[data_key]
                         
-                        if data_key in float_keys:
-                            try:
-                                value_to_add = float(value)
-                            except (ValueError, TypeError):
-                                value_to_add = str(value)
-                        elif isinstance(value, bool):
+                        if isinstance(value, bool):
                             value_to_add = value
                         elif isinstance(value, (int, float)):
                             value_to_add = value
@@ -291,14 +268,13 @@ implementation:
                         
                         creation_data[schema_column] = value_to_add
                 
-                creation_data['execution_id'] = args.execution_id
+                creation_data['execution_id'] = execution_id_value
                 if args.model_id != '-1':
                     creation_data['model_id'] = args.model_id
-                creation_data['tenant_id'] = tenant_id
                 if args.project_id != '-1':
                     creation_data['project_id'] = args.project_id
                 if args.architecture_type != '-1':
-                    creation_data['architecture_type'] = args.architecture_type
+                    creation_data['model_type'] = args.architecture_type
 
                 create_url = args.domain + "/pi-entity-instances-service/v2.0/schemas/" + args.schema_id + "/instances"
                 create_payload = {
