@@ -9,7 +9,7 @@ inputs:
   - {name: experiment_name, type: String, description: 'Human-readable experiment name', default: 'LoRA Experiment'}
   - {name: schema_id, type: String, description: 'The ID of the schema to update'}
   - {name: tenant_id, type: string, description: 'The ID of the tenant'}
-  - {name: project_id, type: String, description: 'The ID of the project'}
+  - {name: projectId, type: String, description: 'The ID of the project'}
   - {name: model_id, type: String, description: 'The ID of the model', default: '-1'}
   - {name: architecture_type, type: String, description: 'The architecture type', default: 'LoRA'}
   - {name: bearer_auth_token, type: string, description: 'Bearer token for authentication'}
@@ -44,7 +44,7 @@ implementation:
         parser.add_argument('--experiment_name', type=str, default='LoRA Experiment')
         parser.add_argument('--schema_id', type=str, required=True)
         parser.add_argument('--tenant_id', type=str, required=True)
-        parser.add_argument('--project_id', type=str, required=True)
+        parser.add_argument('--projectId', type=str, required=True)
         parser.add_argument('--model_id', type=str, default='-1')
         parser.add_argument('--architecture_type', type=str, default='LoRA')
         parser.add_argument('--bearer_auth_token', type=str, required=True)
@@ -277,8 +277,8 @@ implementation:
                 creation_data['execution_id'] = execution_id_value
                 if args.model_id != '-1':
                     creation_data['id'] = args.model_id
-                if args.project_id != '-1':
-                    creation_data['project_id'] = args.project_id
+                if args.projectId != '-1':
+                    creation_data['projectId'] = args.projectId
                 if args.architecture_type != '-1':
                     creation_data['model_type'] = args.architecture_type
 
@@ -333,8 +333,8 @@ implementation:
       - {inputValue: schema_id}
       - --tenant_id
       - {inputPath: tenant_id}
-      - --project_id
-      - {inputValue: project_id}
+      - --projectId
+      - {inputValue: projectId}
       - --model_id
       - {inputValue: model_id}
       - --architecture_type
