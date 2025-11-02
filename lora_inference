@@ -1,11 +1,13 @@
 name: Generic LoRA Inference
-description: Universal inference component for any LoRA fine-tuned model. Supports single prompt, batch prompts, and interactive mode.
+description: Universal inference component for any LoRA fine-tuned model. Supports single prompt, batch prompts, interactive mode, and evaluation with scoring.
 
 inputs:
   - {name: base_model, type: String, description: 'Base model name (must match training model)'}
   - {name: lora_adapters, type: Model, description: 'LoRA adapters from Generic LoRA Fine-tuning component'}
   - {name: prompt, type: String, description: 'Input prompt for inference. Use empty string for batch mode'}
   - {name: batch_prompts, type: String, description: 'JSON array of prompts for batch inference. Example: ["prompt1", "prompt2"]'}
+  - {name: test_data_json, type: String, default: '[]', description: 'JSON string containing list of [input, expected_output] pairs for evaluation. Example: [["input1", "output1"], ["input2", "output2"]]'}
+  - {name: enable_scoring, type: String, default: 'false', description: 'Set to "true" to enable ROUGE and BLEU scoring against ground truth'}
   - {name: max_tokens, type: Integer, description: 'Maximum tokens to generate'}
   - {name: temperature, type: Float, description: 'Sampling temperature (0.0 to 2.0)'}
   - {name: top_p, type: Float, description: 'Nucleus sampling parameter'}
@@ -14,11 +16,11 @@ inputs:
   - {name: hf_token, type: String, description: 'Hugging Face access token for gated models'}
 
 outputs:
-  - {name: inference_results, type: Data}
+  - {name: inference_results, type: String, description: 'JSON file with all inference results and scores'}
 
 metadata:
   annotations:
-    author: Generic LoRA Inference Component
+    author: Generic LoRA Inference Component with Evaluation
 
 implementation:
   container:
@@ -29,7 +31,7 @@ implementation:
       - |
         program_path=$(mktemp -d)
         printf "%s" "$0" > "$program_path/ephemeral_component.py"
-        python3 -m pip install --quiet --no-warn-script-location peft && python3 "$program_path/ephemeral_component.py" "$@"
+        python3 -m pip install --quiet --no-warn-script-location peft rouge-score sacrebleu && python3 "$program_path/ephemeral_component.py" "$@"
       - |
         import argparse
         import os
@@ -38,6 +40,8 @@ implementation:
         from transformers import AutoTokenizer, AutoModelForCausalLM
         from peft import PeftModel
         import logging
+        from rouge_score import rouge_scorer
+        from sacrebleu.metrics import BLEU
         
         logging.basicConfig(level=logging.INFO)
         logger = logging.getLogger(__name__)
@@ -63,6 +67,34 @@ implementation:
             else:
                 nonestr = 'None'
                 return token_str if token_str and token_str != nonestr else None
+        
+        def calculate_scores(generated_text, reference_text):
+            #Calculate ROUGE and BLEU scores between generated and reference text#
+            try:
+                rouge_sc = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
+                bleu_metric = BLEU()
+                
+                rouge_scores = rouge_sc.score(reference_text, generated_text)
+                rouge_l_score = rouge_scores['rougeL'].fmeasure
+                rouge_1_score = rouge_scores['rouge1'].fmeasure
+                rouge_2_score = rouge_scores['rouge2'].fmeasure
+                
+                bleu_score = bleu_metric.sentence_score(generated_text, [reference_text]).score / 100.0
+                
+                return {
+                    'rouge_1': round(rouge_1_score, 4),
+                    'rouge_2': round(rouge_2_score, 4),
+                    'rouge_l': round(rouge_l_score, 4),
+                    'bleu': round(bleu_score, 4)
+                }
+            except Exception as e:
+                logger.error('Error calculating scores: %s', e)
+                return {
+                    'rouge_1': 0.0,
+                    'rouge_2': 0.0,
+                    'rouge_l': 0.0,
+                    'bleu': 0.0
+                }
         
         class UniversalLoRAInference:
             def __init__(self, base_model_name, adapter_path, hf_token=None, device='auto'):
@@ -202,6 +234,8 @@ implementation:
         parser.add_argument('--lora_adapters', required=True)
         parser.add_argument('--prompt', default='')
         parser.add_argument('--batch_prompts', default='')
+        parser.add_argument('--test_data_json', default='[]')
+        parser.add_argument('--enable_scoring', default='false')
         parser.add_argument('--max_tokens', type=int, default=150)
         parser.add_argument('--temperature', type=float, default=0.7)
         parser.add_argument('--top_p', type=float, default=0.9)
@@ -210,8 +244,10 @@ implementation:
         parser.add_argument('--hf_token', default=None)
         parser.add_argument('--inference_results', required=True)
         args = parser.parse_args()
+        
         hf_token = get_token_value(args.hf_token)
         logger.info('HF Token present: %s', bool(hf_token))
+        
         if hf_token:
             from huggingface_hub import login
             try:
@@ -219,15 +255,19 @@ implementation:
                 logger.info('Logged in to Hugging Face Hub')
             except Exception as e:
                 logger.error('Failed to login to HF: %s', e)
+        
         ensure_directory_exists(args.inference_results)
+        
         if not os.path.exists(args.lora_adapters):
             raise ValueError('LoRA adapters path not found: ' + args.lora_adapters)
+        
         engine = UniversalLoRAInference(
             base_model_name=args.base_model,
             adapter_path=args.lora_adapters,
             hf_token=hf_token,
             device='auto'
         )
+        
         results = {}
         results['base_model'] = args.base_model
         results['adapter_path'] = args.lora_adapters
@@ -239,7 +279,95 @@ implementation:
         gen_config['repetition_penalty'] = args.repetition_penalty
         results['generation_config'] = gen_config
         results['inferences'] = []
-        if args.batch_prompts and args.batch_prompts.strip():
+        
+        enable_scoring = args.enable_scoring.lower() == 'true'
+        
+        if enable_scoring and args.test_data_json and args.test_data_json.strip() not in ['[]', '']:
+            logger.info('=' * 70)
+            logger.info('EVALUATION MODE WITH SCORING')
+            logger.info('=' * 70)
+            
+            try:
+                test_data = json.loads(args.test_data_json)
+                
+                if not isinstance(test_data, list):
+                    logger.error('test_data_json must be a list of [input, output] pairs')
+                    raise ValueError('Invalid test_data_json format')
+                
+                logger.info('Loaded %d test cases for evaluation', len(test_data))
+                
+                total_rouge_1 = 0.0
+                total_rouge_2 = 0.0
+                total_rouge_l = 0.0
+                total_bleu = 0.0
+                valid_cases = 0
+                
+                for idx, test_pair in enumerate(test_data):
+                    if not isinstance(test_pair, list) or len(test_pair) != 2:
+                        logger.warning('Skipping invalid test pair at index %d', idx)
+                        continue
+                    
+                    input_text, expected_output = test_pair
+                    
+                    logger.info('-' * 70)
+                    logger.info('Test Case %d/%d', idx + 1, len(test_data))
+                    logger.info('Input: %s...', input_text[:80])
+                    
+                    generated_output = engine.generate(
+                        input_text,
+                        max_new_tokens=args.max_tokens,
+                        temperature=args.temperature,
+                        top_p=args.top_p,
+                        top_k=args.top_k,
+                        repetition_penalty=args.repetition_penalty
+                    )
+                    
+                    scores = calculate_scores(generated_output, expected_output)
+                    
+                    total_rouge_1 += scores['rouge_1']
+                    total_rouge_2 += scores['rouge_2']
+                    total_rouge_l += scores['rouge_l']
+                    total_bleu += scores['bleu']
+                    valid_cases += 1
+                    
+                    inference_item = {
+                        'test_case_id': idx + 1,
+                        'input': input_text,
+                        'generated_output': generated_output,
+                        'expected_output': expected_output,
+                        'scores': scores
+                    }
+                    results['inferences'].append(inference_item)
+                    
+                    logger.info('Generated: %s...', generated_output[:100])
+                    logger.info('Expected: %s...', expected_output[:100])
+                    logger.info('Scores: ROUGE-1=%.4f, ROUGE-2=%.4f, ROUGE-L=%.4f, BLEU=%.4f', 
+                               scores['rouge_1'], scores['rouge_2'], scores['rouge_l'], scores['bleu'])
+                
+                if valid_cases > 0:
+                    results['average_scores'] = {
+                        'rouge_1': round(total_rouge_1 / valid_cases, 4),
+                        'rouge_2': round(total_rouge_2 / valid_cases, 4),
+                        'rouge_l': round(total_rouge_l / valid_cases, 4),
+                        'bleu': round(total_bleu / valid_cases, 4)
+                    }
+                    
+                    logger.info('=' * 70)
+                    logger.info('AVERAGE SCORES ACROSS ALL TEST CASES')
+                    logger.info('  ROUGE-1: %.4f', results['average_scores']['rouge_1'])
+                    logger.info('  ROUGE-2: %.4f', results['average_scores']['rouge_2'])
+                    logger.info('  ROUGE-L: %.4f', results['average_scores']['rouge_l'])
+                    logger.info('  BLEU: %.4f', results['average_scores']['bleu'])
+                    logger.info('=' * 70)
+                
+            except json.JSONDecodeError as e:
+                logger.error('Failed to parse test_data_json: %s', e)
+                raise
+            except Exception as e:
+                logger.error('Error in evaluation mode: %s', e)
+                raise
+        
+        elif args.batch_prompts and args.batch_prompts.strip():
             try:
                 prompts = json.loads(args.batch_prompts)
                 if not isinstance(prompts, list):
@@ -248,6 +376,7 @@ implementation:
             except json.JSONDecodeError:
                 prompts = [args.batch_prompts]
                 logger.info('Single prompt from batch_prompts parameter')
+            
             responses = engine.batch_generate(
                 prompts,
                 max_new_tokens=args.max_tokens,
@@ -256,6 +385,7 @@ implementation:
                 top_k=args.top_k,
                 repetition_penalty=args.repetition_penalty
             )
+            
             sepline = '-' * 70
             for prompt, response in zip(prompts, responses):
                 inference_item = {}
@@ -265,6 +395,7 @@ implementation:
                 logger.info('Prompt: %s', prompt)
                 logger.info('Response: %s', response)
                 logger.info(sepline)
+        
         elif args.prompt and args.prompt.strip():
             logger.info('Single inference mode')
             logger.info('Prompt: %s', args.prompt)
@@ -283,6 +414,7 @@ implementation:
             sepline = '-' * 70
             logger.info('Response: %s', response)
             logger.info(sepline)
+        
         else:
             logger.info('Demo mode with sample prompts')
             demo_prompts = [
@@ -307,9 +439,11 @@ implementation:
                 logger.info('Prompt: %s', prompt)
                 logger.info('Response: %s', response)
                 logger.info(sepline)
+        
         f = open(args.inference_results, 'w')
         json.dump(results, f, indent=2)
         f.close()
+        
         final_sepline = '=' * 70
         logger.info(final_sepline)
         logger.info('Inference complete!')
@@ -325,6 +459,10 @@ implementation:
       - {inputValue: prompt}
       - --batch_prompts
       - {inputValue: batch_prompts}
+      - --test_data_json
+      - {inputValue: test_data_json}
+      - --enable_scoring
+      - {inputValue: enable_scoring}
       - --max_tokens
       - {inputValue: max_tokens}
       - --temperature
