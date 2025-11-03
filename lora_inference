@@ -20,7 +20,7 @@ outputs:
 
 metadata:
   annotations:
-    author: Generic LoRA Inference Component with Evaluation
+    author: Generic LoRA Inference Component with Evaluation and Schema Support
 
 implementation:
   container:
@@ -439,6 +439,21 @@ implementation:
                 logger.info('Response: %s', response)
                 logger.info(sepline)
         
+        # === SCHEMA COMPATIBILITY: Flatten results to match schema fields ===
+        # Note: Schema has typos - "infernce" instead of "inference" in some fields
+        
+        if 'average_scores' in results:
+            results['inference_score_rouge'] = results['average_scores']['rouge_l']
+            results['infernce_score_blue'] = results['average_scores']['bleu']  # Schema has typo
+        
+        if results['inferences'] and len(results['inferences']) > 0:
+            first_inf = results['inferences'][0]
+            results['infernce_input'] = first_inf.get('input', '')  # Schema has typo
+            results['infernce_output'] = first_inf.get('generated_output', '')  # Schema has typo
+        
+        results['ModelName'] = args.base_model
+        
+        # Write results to file
         f = open(args.inference_results, 'w')
         json.dump(results, f, indent=2)
         f.close()
@@ -448,6 +463,11 @@ implementation:
         logger.info('Inference complete!')
         logger.info('Results saved to: %s', args.inference_results)
         logger.info('Total inferences: %d', len(results['inferences']))
+        if 'inference_score_rouge' in results:
+            logger.info('Schema-compatible fields added:')
+            logger.info('  - inference_score_rouge: %.4f', results['inference_score_rouge'])
+            logger.info('  - infernce_score_blue: %.4f', results['infernce_score_blue'])
+            logger.info('  - ModelName: %s', results['ModelName'])
         logger.info(final_sepline)
     args:
       - --base_model
