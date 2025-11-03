@@ -6,8 +6,8 @@ inputs:
   - {name: lora_adapters, type: Model, description: 'LoRA adapters from Generic LoRA Fine-tuning component'}
   - {name: prompt, type: String, description: 'Input prompt for inference. Use empty string for batch mode'}
   - {name: batch_prompts, type: String, description: 'JSON array of prompts for batch inference. Example: ["prompt1", "prompt2"]'}
-  - {name: test_data_json, type: String, default: '[]', description: 'JSON string containing list of [input, expected_output] pairs for evaluation. Example: [["input1", "output1"], ["input2", "output2"]]'}
-  - {name: enable_scoring, type: String, default: 'false', description: 'Set to "true" to enable ROUGE and BLEU scoring against ground truth'}
+  - {name: test_data_json, type: String, description: 'JSON string containing list of [input, expected_output] pairs for evaluation. Example: [["input1", "output1"], ["input2", "output2"]]'}
+  - {name: enable_scoring, type: String, description: 'Set to "true" to enable ROUGE and BLEU scoring against ground truth'}
   - {name: max_tokens, type: Integer, description: 'Maximum tokens to generate'}
   - {name: temperature, type: Float, description: 'Sampling temperature (0.0 to 2.0)'}
   - {name: top_p, type: Float, description: 'Nucleus sampling parameter'}
@@ -69,7 +69,6 @@ implementation:
                 return token_str if token_str and token_str != nonestr else None
         
         def calculate_scores(generated_text, reference_text):
-            #Calculate ROUGE and BLEU scores between generated and reference text#
             try:
                 rouge_sc = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
                 bleu_metric = BLEU()
@@ -229,12 +228,12 @@ implementation:
                     responses.append(response)
                 return responses
         
-        parser = argparse.ArgumentParser(description='Universal LoRA Inference')
+        parser = argparse.ArgumentParser()
         parser.add_argument('--base_model', required=True)
         parser.add_argument('--lora_adapters', required=True)
         parser.add_argument('--prompt', default='')
         parser.add_argument('--batch_prompts', default='')
-        parser.add_argument('--test_data_json', default='[]')
+        parser.add_argument('--test_data_json', type=str, required=True)
         parser.add_argument('--enable_scoring', default='false')
         parser.add_argument('--max_tokens', type=int, default=150)
         parser.add_argument('--temperature', type=float, default=0.7)
@@ -282,7 +281,7 @@ implementation:
         
         enable_scoring = args.enable_scoring.lower() == 'true'
         
-        if enable_scoring and args.test_data_json and args.test_data_json.strip() not in ['[]', '']:
+        if enable_scoring and args.test_data_json and args.test_data_json.strip() and args.test_data_json.strip() != '[]':
             logger.info('=' * 70)
             logger.info('EVALUATION MODE WITH SCORING')
             logger.info('=' * 70)
