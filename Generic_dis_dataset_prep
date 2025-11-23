@@ -1,4 +1,4 @@
-name: Generic Dataset Preparation
+name: Generic_Dataset_Preparation1
 description: Prepares datasets for LoRA fine-tuning (SLM/LLM/VLM) from either Hugging Face repositories or PI API structured JSON. Automatically formats data into chat-style messages and saves schema metadata for downstream fine-tuning. Supports distributed training and optional data caching.
 
 inputs:
