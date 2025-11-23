@@ -1,0 +1,616 @@
+name: Distributed LoRA Fine-tuning1
+description: Fine-tunes any LLM using PEFT LoRA adapters with support for distributed multi-GPU training via Kubeflow Trainer V2.
+
+inputs:
+  - name: model_name
+    type: String
+    description: Hugging Face model ID or path
+  - name: processed_dataset
+    type: Data
+    description: Prepared dataset from Generic Dataset Preparation component
+  - name: schema_json
+    type: Data
+    description: Schema metadata JSON from Generic Dataset Preparation component
+  - name: cache_metadata
+    type: Data
+    description: Cache metadata from Generic Dataset Preparation component
+  - name: num_nodes
+    type: Integer
+    description: Number of training nodes (machines)
+  - name: gpus_per_node
+    type: Integer
+    description: Number of GPUs per node
+  - name: epochs
+    type: Integer
+    description: Number of training epochs
+  - name: batch_size
+    type: Integer
+    description: Per-device training batch size
+  - name: learning_rate
+    type: Float
+    description: Learning rate for optimizer
+  - name: grad_accum_steps
+    type: Integer
+    description: Gradient accumulation steps
+  - name: precision
+    type: String
+    description: 'Training precision: fp32, fp16, or bf16'
+  - name: quantization_bits
+    type: Integer
+    description: Quantization bits (0 for no quantization)
+  - name: lora_r
+    type: Integer
+    description: LoRA rank parameter
+  - name: lora_alpha
+    type: Integer
+    description: LoRA alpha parameter
+  - name: lora_dropout
+    type: Float
+    description: LoRA dropout rate
+  - name: target_modules
+    type: String
+    description: Comma-separated LoRA target modules
+  - name: hf_token
+    type: String
+    description: Hugging Face access token for gated models
+
+outputs:
+  - name: lora_adapters
+    type: Model
+
+metadata:
+  annotations:
+    author: Distributed LoRA Fine-tuning Component
+    framework: PyTorch DDP + Kubeflow Trainer V2
+
+implementation:
+  container:
+    image: nikhilv215/nesy-factory:v22
+    command:
+      - sh
+      - -c
+      - (pip install --no-cache-dir peft kubeflow-sdk > /dev/null 2>&1) && "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        def _make_parent_dirs_and_return_path(file_path):
+            import os
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            return file_path
+        
+        def create_and_run_distributed_training(
+            model_name_path,
+            processed_dataset_path,
+            schema_json_path,
+            cache_metadata_path,
+            num_nodes_val,
+            gpus_per_node_val,
+            epochs_val,
+            batch_size_val,
+            learning_rate_val,
+            grad_accum_steps_val,
+            precision_val,
+            quantization_bits_val,
+            lora_r_val,
+            lora_alpha_val,
+            lora_dropout_val,
+            target_modules_val,
+            hf_token_val,
+            lora_adapters_path,
+        ):
+            import os
+            import json
+            import logging
+            
+            logging.basicConfig(level=logging.INFO)
+            logger = logging.getLogger("distributed_lora_launcher")
+            
+            logger.info(f"Loading schema from {schema_json_path}")
+            with open(schema_json_path) as f:
+                schema = json.load(f)
+            
+            logger.info(f"Loading cache metadata from {cache_metadata_path}")
+            with open(cache_metadata_path) as f:
+                cache_info = json.load(f)
+            
+            logger.info(f"Schema: {json.dumps(schema, indent=2)}")
+            logger.info(f"Cache info: {json.dumps(cache_info, indent=2)}")
+            
+            total_gpus = num_nodes_val * gpus_per_node_val
+            use_distributed = total_gpus > 1
+            
+            logger.info("=" * 60)
+            logger.info("Training Configuration:")
+            logger.info(f"  Nodes: {num_nodes_val}")
+            logger.info(f"  GPUs per node: {gpus_per_node_val}")
+            logger.info(f"  Total GPUs: {total_gpus}")
+            logger.info(f"  Distributed training: {use_distributed}")
+            logger.info(f"  Data cache enabled: {cache_info.get('enabled', False)}")
+            logger.info("=" * 60)
+            
+            def distributed_lora_training():
+                import os
+                import json
+                import math
+                import torch
+                from datasets import load_from_disk
+                from transformers import (
+                    AutoTokenizer, AutoModelForCausalLM,
+                    DataCollatorForLanguageModeling, Trainer, TrainingArguments
+                )
+                from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+                import logging
+                
+                logging.basicConfig(level=logging.INFO)
+                logger = logging.getLogger("lora_training")
+                
+                if use_distributed:
+                    import torch.distributed as dist
+                    
+                    world_size = dist.get_world_size()
+                    rank = dist.get_rank()
+                    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+                    
+                    logger.info("=" * 60)
+                    logger.info(f"Distributed Training Environment:")
+                    logger.info(f"  WORLD_SIZE: {world_size}")
+                    logger.info(f"  RANK: {rank}")
+                    logger.info(f"  LOCAL_RANK: {local_rank}")
+                    logger.info("=" * 60)
+                    
+                    device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+                    if torch.cuda.is_available():
+                        torch.cuda.set_device(local_rank)
+                else:
+                    rank = 0
+                    local_rank = 0
+                    world_size = 1
+                    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                    logger.info(f"Single GPU/CPU training on device: {device}")
+                
+                def ensure_directory_exists(file_path):
+                    directory = os.path.dirname(file_path)
+                    if directory and not os.path.exists(directory):
+                        os.makedirs(directory, exist_ok=True)
+                
+                def get_token_value(token_arg):
+                    if not token_arg:
+                        return None
+                    token_str = str(token_arg).strip()
+                    if os.path.exists(token_str):
+                        try:
+                            with open(token_str) as f:
+                                content = f.read().strip()
+                                return content if content else None
+                        except Exception as e:
+                            logger.error(f"Failed to read token file: {e}")
+                            return None
+                    else:
+                        return token_str if token_str and token_str != "None" else None
+                
+                def maybe_chat_template(tokenizer):
+                    tmpl = getattr(tokenizer, "chat_template", None)
+                    return tmpl is not None and len(str(tmpl)) > 0
+                
+                def guess_lora_targets(model):
+                    names = [n for n, _ in model.named_modules()]
+                    if rank == 0:
+                        logger.info("Analyzing model architecture for LoRA targets...")
+                    if any("q_proj" in n for n in names):
+                        targets = ["q_proj", "v_proj"]
+                    elif any("c_attn" in n for n in names):
+                        targets = ["c_attn", "c_proj"]
+                    elif any("fc1" in n for n in names):
+                        targets = ["fc1", "fc2"]
+                    elif any("Wqkv" in n for n in names):
+                        targets = ["Wqkv"]
+                    elif any("query_key_value" in n for n in names):
+                        targets = ["query_key_value"]
+                    else:
+                        if rank == 0:
+                            logger.warning("Could not auto-detect LoRA targets; defaulting to common linear layers")
+                        targets = ["q_proj", "v_proj"]
+                    if rank == 0:
+                        logger.info(f"Selected LoRA target modules: {targets}")
+                    return targets
+                
+                hf_token = get_token_value(hf_token_val)
+                if rank == 0:
+                    logger.info(f"HF Token present: {bool(hf_token)}")
+                
+                from huggingface_hub import login
+                if hf_token:
+                    try:
+                        login(token=hf_token)
+                        if rank == 0:
+                            logger.info("Logged in to Hugging Face Hub")
+                    except Exception as e:
+                        if rank == 0:
+                            logger.error(f"Failed to login to HF: {e}")
+                
+                ensure_directory_exists(lora_adapters_path)
+                output_dir = lora_adapters_path
+                
+                with open(schema_json_path) as f:
+                    schema = json.load(f)
+                
+                if rank == 0:
+                    logger.info(f"Loading dataset from {processed_dataset_path}")
+                
+                dsd = load_from_disk(processed_dataset_path)
+                
+                if use_distributed:
+                    dist.barrier()
+                
+                if rank == 0:
+                    logger.info(f"Loading model/tokenizer from: {model_name_path}")
+                
+                tokenizer_kwargs = {"use_fast": True, "trust_remote_code": True}
+                if hf_token:
+                    tokenizer_kwargs["token"] = hf_token
+                
+                tokenizer = AutoTokenizer.from_pretrained(model_name_path, **tokenizer_kwargs)
+                if tokenizer.pad_token is None:
+                    tokenizer.pad_token = tokenizer.eos_token
+                    if rank == 0:
+                        logger.info("Set pad_token to eos_token")
+                
+                model_kwargs = {"trust_remote_code": True, "torch_dtype": torch.float32}
+                if hf_token:
+                    model_kwargs["token"] = hf_token
+                
+                if precision_val == "bf16":
+                    model_kwargs["torch_dtype"] = torch.bfloat16
+                elif precision_val == "fp16":
+                    model_kwargs["torch_dtype"] = torch.float16
+                
+                if use_distributed:
+                    model_kwargs["device_map"] = {"": device}
+                else:
+                    model_kwargs["device_map"] = "auto"
+                
+                try:
+                    model_kwargs["use_safetensors"] = True
+                    if rank == 0:
+                        logger.info(f"Attempting to load model with kwargs: {list(model_kwargs.keys())}")
+                    model = AutoModelForCausalLM.from_pretrained(model_name_path, **model_kwargs)
+                except Exception as e:
+                    if rank == 0:
+                        logger.warning(f"Failed to load with safetensors, trying without: {e}")
+                    model_kwargs.pop("use_safetensors", None)
+                    model = AutoModelForCausalLM.from_pretrained(model_name_path, **model_kwargs)
+                
+                if rank == 0:
+                    logger.info(f"Model loaded successfully: {type(model).__name__}")
+                
+                if quantization_bits_val in (4, 8):
+                    if rank == 0:
+                        logger.info(f"Preparing model for {quantization_bits_val}-bit training")
+                    model = prepare_model_for_kbit_training(model)
+                
+                cleaned_target_modules = target_modules_val.strip().strip('"').strip("'")
+                if cleaned_target_modules and cleaned_target_modules != "None":
+                    target_modules = [t.strip() for t in cleaned_target_modules.split(",") if t.strip()]
+                    if target_modules:
+                        if rank == 0:
+                            logger.info(f"Using user-specified LoRA targets: {target_modules}")
+                    else:
+                        if rank == 0:
+                            logger.info("No valid target modules specified, auto-detecting...")
+                        target_modules = guess_lora_targets(model)
+                else:
+                    if rank == 0:
+                        logger.info("Target modules empty or None, auto-detecting...")
+                    target_modules = guess_lora_targets(model)
+                
+                lora_cfg = LoraConfig(
+                    r=lora_r_val,
+                    lora_alpha=lora_alpha_val,
+                    lora_dropout=lora_dropout_val,
+                    target_modules=target_modules,
+                    bias="none",
+                    task_type="CAUSAL_LM"
+                )
+                
+                model = get_peft_model(model, lora_cfg)
+                
+                if rank == 0:
+                    model.print_trainable_parameters()
+                
+                train_ds = dsd.get("train")
+                has_messages = "messages" in train_ds.column_names if train_ds else False
+                use_chat = has_messages and maybe_chat_template(tokenizer)
+                
+                if rank == 0:
+                    logger.info(f"Dataset has messages format: {has_messages}")
+                    logger.info(f"Using chat template: {use_chat}")
+                
+                def tokenize_example(ex):
+                    max_len = getattr(tokenizer, 'model_max_length', 512)
+                    if max_len > 1024:
+                        max_len = 512
+                    
+                    if has_messages:
+                        if use_chat:
+                            try:
+                                msgs = ex.get("messages", [])
+                                ids = tokenizer.apply_chat_template(msgs, tokenize=True, add_generation_prompt=False, truncation=True, max_length=max_len)
+                                return {"input_ids": ids, "attention_mask": [1] * len(ids)}
+                            except Exception as e:
+                                msgs = ex.get("messages", [])
+                                q = msgs[0].get("content", "") if len(msgs) > 0 else ""
+                                a = msgs[1].get("content", "") if len(msgs) > 1 else ""
+                                text = "User: " + q + " Assistant: " + a
+                        else:
+                            msgs = ex.get("messages", [])
+                            q = msgs[0].get("content", "") if len(msgs) > 0 else ""
+                            a = msgs[1].get("content", "") if len(msgs) > 1 else ""
+                            text = "User: " + q + " Assistant: " + a
+                        if not use_chat:
+                            out = tokenizer(text, truncation=True, max_length=max_len)
+                            return {"input_ids": out["input_ids"], "attention_mask": out["attention_mask"]}
+                    else:
+                        input_field = schema.get("input_field", "text")
+                        text = ex.get(input_field, "")
+                        out = tokenizer(text, truncation=True, max_length=max_len)
+                        return {"input_ids": out["input_ids"], "attention_mask": out["attention_mask"]}
+                
+                keep_cols = ["input_ids", "attention_mask"]
+                if rank == 0:
+                    logger.info("Tokenizing dataset...")
+                
+                train_cols = train_ds.column_names if train_ds else []
+                cols_to_remove = [c for c in train_cols if c not in keep_cols]
+                dsd = dsd.map(tokenize_example, remove_columns=cols_to_remove, desc="Tokenizing")
+                
+                collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
+                train_dataset = dsd.get("train")
+                train_len = len(train_dataset) if train_dataset else 0
+                
+                effective_batch_size = batch_size_val * grad_accum_steps_val * world_size
+                total_steps = max(1, math.ceil(train_len / effective_batch_size))
+                
+                training_args = TrainingArguments(
+                    output_dir=output_dir,
+                    per_device_train_batch_size=batch_size_val,
+                    gradient_accumulation_steps=grad_accum_steps_val,
+                    learning_rate=learning_rate_val,
+                    num_train_epochs=epochs_val,
+                    warmup_ratio=0.03,
+                    logging_steps=max(1, total_steps // 10),
+                    save_steps=total_steps,
+                    save_total_limit=1,
+                    report_to="none",
+                    bf16=(precision_val == "bf16"),
+                    fp16=(precision_val == "fp16"),
+                    save_safetensors=True,
+                    dataloader_num_workers=0,
+                    remove_unused_columns=False,
+                    ddp_backend="nccl" if (use_distributed and torch.cuda.is_available()) else None,
+                    ddp_find_unused_parameters=False,
+                    local_rank=local_rank if use_distributed else -1,
+                )
+                
+                trainer = Trainer(
+                    model=model,
+                    args=training_args,
+                    train_dataset=train_dataset,
+                    data_collator=collator
+                )
+                
+                if rank == 0:
+                    logger.info("=" * 60)
+                    logger.info("Starting LoRA fine-tuning...")
+                    logger.info(f"  Training samples: {train_len}")
+                    logger.info(f"  Total steps: {total_steps}")
+                    logger.info(f"  Per-device batch size: {batch_size_val}")
+                    logger.info(f"  Gradient accumulation: {grad_accum_steps_val}")
+                    logger.info(f"  World size (GPUs): {world_size}")
+                    logger.info(f"  Effective batch size: {effective_batch_size}")
+                    logger.info("=" * 60)
+                
+                trainer.train()
+                
+                if rank == 0:
+                    adapter_dir = os.path.join(output_dir, "adapter")
+                    os.makedirs(adapter_dir, exist_ok=True)
+                    
+                    logger.info("Saving LoRA adapters to " + adapter_dir)
+                    model.save_pretrained(adapter_dir)
+                    tokenizer.save_pretrained(output_dir)
+                    
+                    run_config = {
+                        "model_name": model_name_path,
+                        "epochs": epochs_val,
+                        "batch_size": batch_size_val,
+                        "learning_rate": learning_rate_val,
+                        "grad_accum_steps": grad_accum_steps_val,
+                        "precision": precision_val,
+                        "quantization_bits": quantization_bits_val,
+                        "lora_r": lora_r_val,
+                        "lora_alpha": lora_alpha_val,
+                        "lora_dropout": lora_dropout_val,
+                        "target_modules": target_modules,
+                        "total_steps": total_steps,
+                        "num_train_samples": train_len,
+                        "num_nodes": num_nodes_val,
+                        "gpus_per_node": gpus_per_node_val,
+                        "world_size": world_size
+                    }
+                    
+                    with open(os.path.join(output_dir, "run_config.json"), "w") as f:
+                        json.dump(run_config, f, indent=2)
+                    
+                    logger.info("=" * 60)
+                    logger.info("Fine-tuning complete!")
+                    logger.info("LoRA adapters saved to: " + adapter_dir)
+                    logger.info("Tokenizer saved to: " + output_dir)
+                    logger.info("Configuration saved to: " + os.path.join(output_dir, "run_config.json"))
+                    logger.info("=" * 60)
+                
+                if use_distributed:
+                    dist.barrier()
+            
+            if use_distributed:
+                logger.info("Submitting distributed TrainJob via Kubeflow Trainer...")
+                
+                try:
+                    from kubeflow.trainer import TrainerClient, CustomTrainer
+                    
+                    use_cache = cache_info.get("enabled", False)
+                    runtime_name = "torch-distributed-with-cache" if use_cache else "torch-distributed"
+                    
+                    logger.info(f"Using runtime: {runtime_name}")
+                    
+                    client = TrainerClient()
+                    
+                    trainer_config = CustomTrainer(
+                        func=distributed_lora_training,
+                        num_nodes=num_nodes_val,
+                        resources_per_node={
+                            "cpu": "8",
+                            "memory": "32Gi",
+                            "gpu": gpus_per_node_val
+                        },
+                        packages_to_install=[
+                            "transformers>=4.35.0",
+                            "peft>=0.6.0",
+                            "datasets>=2.14.0",
+                            "accelerate>=0.24.0",
+                            "bitsandbytes>=0.41.0"
+                        ]
+                    )
+                    
+                    dataset_initializer = None
+                    if use_cache and "storage_uri" in cache_info:
+                        logger.info("Configuring data cache initializer...")
+                        try:
+                            from kubeflow.trainer import DataCacheInitializer
+                            
+                            dataset_initializer = DataCacheInitializer(
+                                storage_uri=cache_info["storage_uri"],
+                                metadata_loc=cache_info.get("metadata_location", ""),
+                                num_data_nodes=2,
+                            )
+                            logger.info("Data cache initializer configured")
+                        except Exception as e:
+                            logger.warning(f"Failed to configure data cache: {e}")
+                            logger.warning("Proceeding without data cache")
+                    
+                    import re
+                    safe_model_name = re.sub(r'[^a-z0-9-]', '-', model_name_path.lower())
+                    job_name = f"lora-training-{safe_model_name[:30]}"
+                    
+                    logger.info(f"Submitting TrainJob: {job_name}")
+                    
+                    job_id = client.train(
+                        name=job_name,
+                        runtime=runtime_name,
+                        trainer=trainer_config,
+                        dataset_initializer=dataset_initializer
+                    )
+                    
+                    logger.info(f"TrainJob submitted successfully: {job_id}")
+                    logger.info("Monitoring training progress...")
+                    
+                    import time
+                    while True:
+                        job = client.get_job(name=job_id)
+                        status = job.status
+                        
+                        logger.info(f"Job status: {status}")
+                        
+                        if status in ["Succeeded", "Failed", "Error"]:
+                            break
+                        
+                        time.sleep(30)
+                    
+                    if status == "Succeeded":
+                        logger.info("=" * 60)
+                        logger.info("Training completed successfully!")
+                        logger.info("=" * 60)
+                        
+                        logger.info("Training logs (last 50 lines)")
+                        logger.info("-" * 60)
+                        logs = list(client.get_job_logs(name=job_id, follow=False))
+                        for line in logs[-50:]:
+                            print(line)
+                        
+                        logger.info("=" * 60)
+                    else:
+                        logger.error(f"Training failed with status: {status}")
+                        logger.error("Fetching error logs...")
+                        for line in client.get_job_logs(name=job_id, follow=False):
+                            print(line)
+                        raise RuntimeError(f"TrainJob failed with status: {status}")
+                
+                except ImportError as e:
+                    logger.error("Kubeflow Trainer SDK not available!")
+                    logger.error("Please install: pip install kubeflow-sdk")
+                    logger.error(f"Error: {e}")
+                    raise
+                
+            else:
+                logger.info("Running single GPU/CPU training directly...")
+                distributed_lora_training()
+        
+        import argparse
+        _parser = argparse.ArgumentParser(prog="Distributed LoRA Fine-tuning", description="Fine-tunes any LLM using PEFT LoRA adapters with distributed training support")
+        _parser.add_argument("--model_name", dest="model_name_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--processed_dataset", dest="processed_dataset_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--schema_json", dest="schema_json_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--cache_metadata", dest="cache_metadata_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--num_nodes", dest="num_nodes_val", type=int, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--gpus_per_node", dest="gpus_per_node_val", type=int, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--epochs", dest="epochs_val", type=int, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--batch_size", dest="batch_size_val", type=int, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--learning_rate", dest="learning_rate_val", type=float, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--grad_accum_steps", dest="grad_accum_steps_val", type=int, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--precision", dest="precision_val", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--quantization_bits", dest="quantization_bits_val", type=int, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--lora_r", dest="lora_r_val", type=int, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--lora_alpha", dest="lora_alpha_val", type=int, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--lora_dropout", dest="lora_dropout_val", type=float, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--target_modules", dest="target_modules_val", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--hf_token", dest="hf_token_val", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--lora_adapters", dest="lora_adapters_path", type=_make_parent_dirs_and_return_path, required=True, default=argparse.SUPPRESS)
+        _parsed_args = vars(_parser.parse_args())
+        create_and_run_distributed_training(**_parsed_args)
+    args:
+      - --model_name
+      - inputValue: model_name
+      - --processed_dataset
+      - inputPath: processed_dataset
+      - --schema_json
+      - inputPath: schema_json
+      - --cache_metadata
+      - inputPath: cache_metadata
+      - --num_nodes
+      - inputValue: num_nodes
+      - --gpus_per_node
+      - inputValue: gpus_per_node
+      - --epochs
+      - inputValue: epochs
+      - --batch_size
+      - inputValue: batch_size
+      - --learning_rate
+      - inputValue: learning_rate
+      - --grad_accum_steps
+      - inputValue: grad_accum_steps
+      - --precision
+      - inputValue: precision
+      - --quantization_bits
+      - inputValue: quantization_bits
+      - --lora_r
+      - inputValue: lora_r
+      - --lora_alpha
+      - inputValue: lora_alpha
+      - --lora_dropout
+      - inputValue: lora_dropout
+      - --target_modules
+      - inputValue: target_modules
+      - --hf_token
+      - inputValue: hf_token
+      - --lora_adapters
+      - outputPath: lora_adapters
