@@ -27,7 +27,7 @@ inputs:
     type: String
     description: Hugging Face access token for private datasets
   - name: access_token
-    type: String
+    type: string
     description: Bearer access token for API auth
   - name: use_data_cache
     type: String
