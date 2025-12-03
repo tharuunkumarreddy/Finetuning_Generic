@@ -30,11 +30,6 @@ implementation:
   container:
     image: gurpreetgandhi/nesy-factory:v24-gpu
     command:
-      - sh
-      - -c
-      - |
-        pip install --no-cache-dir "torchvision==0.19.0"
-        exec "$0" "$@"
       - python3
       - -u
       - -c
