@@ -1,4 +1,4 @@
-name: Generic LoRA Fine-tuning Unsloth119
+name: Generic LoRA Fine-tuning Unsloth111
 description: Fine-tunes any LLM using PEFT LoRA adapters with Unsloth optimization for 2-5x speed and memory efficiency.
 
 inputs:
@@ -33,9 +33,8 @@ implementation:
       - sh
       - -c
       - |
-        pip install --no-cache-dir torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu121 && \
-        pip install --no-cache-dir transformers==4.46.3 peft==0.13.2 trl==0.11.4 bitsandbytes==0.44.1 accelerate==0.34.2 datasets && \
-        "$0" "$@"
+        pip install --no-cache-dir "torchvision==0.19.0"
+        exec "$0" "$@"
       - python3
       - -u
       - -c
@@ -79,6 +78,7 @@ implementation:
             if has_gpu:
                 logger.info(f"GPU Device: {torch.cuda.get_device_name(0)}")
                 logger.info(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
+                logger.info(f"CUDA Version: {torch.version.cuda}")
             
             # Try importing Unsloth only if GPU is available and enabled
             unsloth_available = False
@@ -231,7 +231,7 @@ implementation:
                         lora_alpha=lora_alpha_val,
                         lora_dropout=lora_dropout_val,
                         bias="none",
-                        use_gradient_checkpointing="unsloth",
+                        use_gradient_checkpointing="unsloth",  # Unsloth's optimized gradient checkpointing
                         random_state=3407,
                         use_rslora=False,
                         loftq_config=None
@@ -392,7 +392,7 @@ implementation:
             # Add Unsloth-specific optimizations if using Unsloth
             if use_unsloth_val and unsloth_available and FastLanguageModel is not None:
                 training_args_dict.update({
-                    "optim": "adamw_8bit",
+                    "optim": "adamw_8bit",  # 8-bit optimizer for memory efficiency
                     "weight_decay": 0.01,
                     "lr_scheduler_type": "linear",
                     "seed": 3407,
