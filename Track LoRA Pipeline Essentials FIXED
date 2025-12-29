@@ -1,5 +1,5 @@
-name: Track LoRA Pipeline Essentials FIXED
-description: Tracks essential metadata from LoRA fine-tuning pipeline with proper id field handling
+name: Track LoRA Pipeline Essentials - Smart Update
+description: Handles ID conflicts intelligently - auto-generates unique IDs or updates existing records
 
 inputs:
   - {name: dataset_schema_json, type: Data, description: 'Schema JSON from Generic Dataset Preparation'}
@@ -68,7 +68,7 @@ implementation:
                 return {}
 
         print("=" * 80)
-        print("TRACKING LORA PIPELINE ESSENTIALS - FIXED VERSION")
+        print("TRACKING LORA PIPELINE - SMART UPDATE")
         print("=" * 80)
 
         # Read inputs
@@ -153,12 +153,35 @@ implementation:
 
         print("")
         print("=" * 80)
-        print("UPDATING SCHEMA DATABASE")
+        print("SMART ID GENERATION")
         print("=" * 80)
-        print("Execution ID = " + str(args.execution_id))
-        print("Model ID = " + str(args.model_id))
-        print("Project ID = " + str(args.projectId))
-        print("Schema ID = " + str(args.schema_id))
+        
+        # Convert execution_id to integer
+        try:
+            execution_id_value = int(args.execution_id)
+            print("Execution ID (int) = " + str(execution_id_value))
+        except ValueError:
+            print("ERROR: execution_id must be numeric! Got: " + str(args.execution_id))
+            execution_id_value = args.execution_id
+
+        # SMART ID GENERATION: Prevents conflicts automatically
+        if args.model_id == '-1':
+            # Auto-generate from execution_id only
+            unique_id = "model_" + str(execution_id_value)
+            print("Strategy: Auto-generated ID")
+            print("Generated ID: " + unique_id)
+        else:
+            # Combine model_id + execution_id for uniqueness
+            unique_id = str(args.model_id) + "_" + str(execution_id_value)
+            print("Strategy: Combined model_id + execution_id")
+            print("Model ID: " + str(args.model_id))
+            print("Execution ID: " + str(execution_id_value))
+            print("Generated unique ID: " + unique_id)
+
+        print("")
+        print("=" * 80)
+        print("CHECKING FOR EXISTING RECORDS")
+        print("=" * 80)
 
         headers = {
             'Content-Type': 'application/json',
@@ -178,15 +201,38 @@ implementation:
 
         check_url = args.domain + "/pi-entity-instances-service/v3.0/schemas/" + args.schema_id + "/instances/list"
         
-        # Convert execution_id to integer
-        try:
-            execution_id_value = int(args.execution_id)
-            print("Using integer execution_id = " + str(execution_id_value))
-        except ValueError:
-            print("ERROR: execution_id must be numeric! Got: " + str(args.execution_id))
-            execution_id_value = args.execution_id
+        # Check 1: Does a record with this ID already exist?
+        check_by_id_payload = {
+            "dbType": "TIDB",
+            "ownedOnly": True,
+            "filter": {
+                "id": unique_id
+            }
+        }
         
-        check_payload = {
+        print("Check 1: Looking for existing record with id = " + unique_id)
+        
+        try:
+            response = http.post(check_url, headers=headers, data=json.dumps(check_by_id_payload), timeout=60)
+            response.raise_for_status()
+            response_data = response.json()
+            
+            record_exists_by_id = bool(response_data.get("content"))
+            
+            if record_exists_by_id:
+                print("✓ Found existing record with id = " + unique_id)
+                existing_record = response_data["content"][0]
+                print("Existing execution_id = " + str(existing_record.get("execution_id")))
+                print("Current execution_id = " + str(execution_id_value))
+            else:
+                print("✗ No record found with id = " + unique_id)
+            
+        except Exception as e:
+            print("Error checking by ID: " + str(e))
+            record_exists_by_id = False
+
+        # Check 2: Does a record with this execution_id exist?
+        check_by_execution_payload = {
             "dbType": "TIDB",
             "ownedOnly": True,
             "filter": {
@@ -195,22 +241,39 @@ implementation:
         }
         
         print("")
-        print("Checking for existing record with execution_id = " + str(execution_id_value))
-        print("CHECK URL: " + check_url)
-        print("CHECK PAYLOAD: " + json.dumps(check_payload, indent=2))
-
+        print("Check 2: Looking for record with execution_id = " + str(execution_id_value))
+        
         try:
-            response = http.post(check_url, headers=headers, data=json.dumps(check_payload), timeout=60)
-            print("Check response status: " + str(response.status_code))
-            print("Check response body: " + str(response.text[:500]))
+            response = http.post(check_url, headers=headers, data=json.dumps(check_by_execution_payload), timeout=60)
             response.raise_for_status()
             response_data = response.json()
             
-            if response_data.get("content"):
-                print("")
-                print("=" * 80)
-                print("FOUND EXISTING RECORD - UPDATING")
-                print("=" * 80)
+            record_exists_by_execution = bool(response_data.get("content"))
+            
+            if record_exists_by_execution:
+                print("✓ Found existing record with execution_id = " + str(execution_id_value))
+                existing_exec_record = response_data["content"][0]
+                existing_id = existing_exec_record.get("id")
+                print("Existing id = " + str(existing_id))
+            else:
+                print("✗ No record found with execution_id = " + str(execution_id_value))
+                existing_id = None
+            
+        except Exception as e:
+            print("Error checking by execution_id: " + str(e))
+            record_exists_by_execution = False
+            existing_id = None
+
+        print("")
+        print("=" * 80)
+        print("DECISION LOGIC")
+        print("=" * 80)
+
+        try:
+            if record_exists_by_id:
+                # Case 1: Record with this ID exists - UPDATE it
+                print("DECISION: UPDATE existing record (id = " + unique_id + ")")
+                print("Reason: Record with this ID already exists")
                 
                 patch_requests = []
                 for schema_column, data_key in mapping.items():
@@ -230,7 +293,81 @@ implementation:
                             "path": schema_column,
                             "value": value_to_patch
                         })
-                        print("PATCH: " + schema_column + " = " + str(value_to_patch))
+                        print("  UPDATE: " + schema_column + " = " + str(value_to_patch)[:50])
+
+                # Also update execution_id
+                patch_requests.append({
+                    "operation": "REPLACE",
+                    "path": "execution_id",
+                    "value": execution_id_value
+                })
+                print("  UPDATE: execution_id = " + str(execution_id_value))
+
+                update_url = args.domain + "/pi-entity-instances-service/v2.0/schemas/" + args.schema_id + "/instances"
+                update_payload = {
+                    "dbType": "TIDB",
+                    "conditionalFilter": {
+                        "conditions": [
+                            {
+                                "field": "id",
+                                "operator": "EQUAL",
+                                "value": unique_id
+                            }
+                        ]
+                    },
+                    "partialUpdateRequests": [
+                        {
+                            "patch": patch_requests
+                        }
+                    ]
+                }
+                
+                print("")
+                print("Sending UPDATE request...")
+                response = http.patch(update_url, headers=headers, data=json.dumps(update_payload), timeout=60)
+                print("Response status: " + str(response.status_code))
+                
+                if response.status_code >= 400:
+                    print("ERROR: " + str(response.text))
+                
+                response.raise_for_status()
+                
+                status_message = "Updated record with id = " + unique_id + ", execution_id = " + str(execution_id_value)
+                print("✓ Successfully updated")
+                
+            elif record_exists_by_execution:
+                # Case 2: Record with this execution_id exists but different ID
+                # This means user changed model_id but kept execution_id same
+                # UPDATE the existing record's ID
+                print("DECISION: UPDATE existing record (change ID)")
+                print("Reason: execution_id=" + str(execution_id_value) + " exists with different id=" + str(existing_id))
+                print("Action: Update existing record to use new id=" + unique_id)
+                
+                patch_requests = []
+                for schema_column, data_key in mapping.items():
+                    if data_key in tracking_data:
+                        value = tracking_data[data_key]
+                        
+                        if isinstance(value, bool):
+                            value_to_patch = value
+                        elif isinstance(value, (int, float)):
+                            value_to_patch = value
+                        else:
+                            value_to_patch = str(value)
+
+                        patch_requests.append({
+                            "operation": "REPLACE",
+                            "path": schema_column,
+                            "value": value_to_patch
+                        })
+
+                # Update the ID field too
+                patch_requests.append({
+                    "operation": "REPLACE",
+                    "path": "id",
+                    "value": unique_id
+                })
+                print("  UPDATE: id = " + unique_id)
 
                 update_url = args.domain + "/pi-entity-instances-service/v2.0/schemas/" + args.schema_id + "/instances"
                 update_payload = {
@@ -252,30 +389,28 @@ implementation:
                 }
                 
                 print("")
-                print("UPDATE URL: " + update_url)
-                print("UPDATE PAYLOAD: " + json.dumps(update_payload, indent=2))
-                print("Updating " + str(len(patch_requests)) + " fields")
-                
+                print("Sending UPDATE request...")
                 response = http.patch(update_url, headers=headers, data=json.dumps(update_payload), timeout=60)
-                print("Update response status: " + str(response.status_code))
-                print("Update response body: " + str(response.text))
+                print("Response status: " + str(response.status_code))
+                
+                if response.status_code >= 400:
+                    print("ERROR: " + str(response.text))
+                
                 response.raise_for_status()
                 
-                print("Successfully updated existing record")
-                status_message = "Updated existing record for execution_id = " + str(args.execution_id)
+                status_message = "Updated execution_id=" + str(execution_id_value) + " with new id=" + unique_id
+                print("✓ Successfully updated")
                 
             else:
-                print("")
-                print("=" * 80)
-                print("NO EXISTING RECORD - CREATING NEW")
-                print("=" * 80)
+                # Case 3: No existing record - CREATE new
+                print("DECISION: CREATE new record")
+                print("Reason: No existing record found")
                 
                 creation_data = {}
                 for schema_column, data_key in mapping.items():
                     if data_key in tracking_data:
                         value = tracking_data[data_key]
                         
-                        # Preserve data types
                         if isinstance(value, bool):
                             value_to_add = value
                         elif isinstance(value, (int, float)):
@@ -284,25 +419,18 @@ implementation:
                             value_to_add = str(value)
                         
                         creation_data[schema_column] = value_to_add
-                        print("CREATE FIELD: " + schema_column + " = " + str(value_to_add))
+                        print("  CREATE: " + schema_column + " = " + str(value_to_add)[:50])
                 
-                # CRITICAL: Add required fields
+                # Add required fields
                 creation_data['execution_id'] = execution_id_value
-                print("CREATE FIELD: execution_id = " + str(execution_id_value))
-                
-                # Add id (PRIMARY KEY - REQUIRED!)
-                if args.model_id != '-1':
-                    creation_data['id'] = str(args.model_id)
-                    print("CREATE FIELD: id = " + str(args.model_id))
-                else:
-                    # Generate id from execution_id if model_id not provided
-                    creation_data['id'] = "model_" + str(execution_id_value)
-                    print("CREATE FIELD: id = model_" + str(execution_id_value) + " (auto-generated)")
+                creation_data['id'] = unique_id
+                print("  CREATE: execution_id = " + str(execution_id_value))
+                print("  CREATE: id = " + unique_id)
                 
                 # Add projectId
                 if args.projectId and args.projectId != '-1':
                     creation_data['projectId'] = str(args.projectId)
-                    print("CREATE FIELD: projectId = " + str(args.projectId))
+                    print("  CREATE: projectId = " + str(args.projectId))
 
                 create_url = args.domain + "/pi-entity-instances-service/v2.0/schemas/" + args.schema_id + "/instances"
                 create_payload = {
@@ -310,27 +438,26 @@ implementation:
                 }
 
                 print("")
-                print("CREATE URL: " + create_url)
-                print("CREATE PAYLOAD: " + json.dumps(create_payload, indent=2))
-                print("Creating record with " + str(len(creation_data)) + " fields")
+                print("Sending CREATE request...")
+                print("Total fields: " + str(len(creation_data)))
                 
                 response = http.post(create_url, headers=headers, data=json.dumps(create_payload), timeout=60)
-                print("Create response status: " + str(response.status_code))
-                print("Create response body: " + str(response.text))
+                print("Response status: " + str(response.status_code))
+                print("Response: " + str(response.text))
                 
                 if response.status_code >= 400:
-                    print("ERROR " + str(response.status_code) + " " + str(response.reason))
-                    print("ERROR RESPONSE: " + str(response.text))
+                    print("ERROR: " + str(response.text))
                 
                 response.raise_for_status()
                 
-                print("Successfully created new record")
-                status_message = "Created new record for execution_id = " + str(args.execution_id)
+                status_message = "Created new record with id = " + unique_id + ", execution_id = " + str(execution_id_value)
+                print("✓ Successfully created")
             
+            print("")
             print("API Response: " + str(response.json()))
 
         except requests.exceptions.RequestException as e:
-            error_msg = "Schema update failed - " + str(e)
+            error_msg = "Operation failed - " + str(e)
             print("")
             print("=" * 80)
             print("ERROR")
@@ -349,7 +476,7 @@ implementation:
         print("=" * 80)
         print("TRACKING COMPLETE")
         print("=" * 80)
-        print("Status = " + str(status_message))
+        print("Status: " + status_message)
         print("=" * 80)
     args:
       - --dataset_schema_json
